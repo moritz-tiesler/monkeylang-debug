@@ -119,7 +119,10 @@ func (ds *fakeDebugSession) doContinue() {
 		}
 	} else {
 
-		ds.Driver.RunUntilBreakPoint(ds.breakPoints[0].Line)
+		err := ds.Driver.RunUntilBreakPoint(ds.breakPoints[0].Line - 1)
+		if err != nil {
+			log.Printf("error runnig VM: %s", err)
+		}
 		log.Printf("Ran VM until %v\n", ds.Driver.VM.SourceLocation())
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
@@ -408,6 +411,7 @@ func (ds *fakeDebugSession) OnPauseRequest(request *dap.PauseRequest) {
 }
 
 func (ds *fakeDebugSession) OnStackTraceRequest(request *dap.StackTraceRequest) {
+	log.Printf("VM LOCS: %v", ds.Driver.VM.LocationMap)
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	response.Body = dap.StackTraceResponseBody{
@@ -415,7 +419,7 @@ func (ds *fakeDebugSession) OnStackTraceRequest(request *dap.StackTraceRequest) 
 			{
 				Id:     1000,
 				Source: &ds.source,
-				Line:   ds.Driver.VMLocation(),
+				Line:   ds.Driver.VMLocation() + 1,
 				Column: 0,
 				Name:   "main.main",
 			},
