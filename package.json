@@ -74,6 +74,17 @@
     "request": "never"
   },
   "contributes": {
+    "languages": [
+      {
+        "id": "monkeylang",
+        "aliases": [
+          "monkey"
+        ],
+        "extensions": [
+          "mky"
+        ]
+      }
+    ],
     "menus": {
       "editor/title/run": [
         {
@@ -127,13 +138,17 @@
     "breakpoints": [
       {
         "language": "markdown"
+      }, 
+      {
+        "language": "monkeylang"
       }
     ],
     "debuggers": [
       {
         "type": "mock",
         "languages": [
-          "markdown"
+         "markdown", 
+         "monkeylang"
         ],
         "label": "Mock Debug",
         "program": "./src/server/monkeylang-debug",

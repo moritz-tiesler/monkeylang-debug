@@ -2,11 +2,14 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"sync"
 	"time"
+
+	"monkeylang-debug/driver"
 
 	"github.com/google/go-dap"
 )
@@ -56,6 +59,7 @@ type fakeDebugSession struct {
 	bpSetMux    sync.Mutex
 	breakPoints []dap.SourceBreakpoint
 	source      dap.Source
+	Driver      driver.Driver
 }
 
 func StartSession(conn io.ReadWriteCloser) {
@@ -63,7 +67,6 @@ func StartSession(conn io.ReadWriteCloser) {
 		rw:        bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn)),
 		sendQueue: make(chan dap.Message),
 		stopDebug: make(chan struct{}),
-		//cdebuglog:  debuglog,
 	}
 	debugSession.handler = &debugSession
 	//debugSession.handler.SetSession(&debugSession)
@@ -115,6 +118,9 @@ func (ds *fakeDebugSession) doContinue() {
 			Event: *newEvent("terminated"),
 		}
 	} else {
+
+		ds.Driver.RunUntilBreakPoint(ds.breakPoints[0].Line)
+		log.Printf("Ran VM until %v\n", ds.Driver.VM.SourceLocation())
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
 			Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
@@ -311,6 +317,14 @@ func (ds *fakeDebugSession) OnRestartRequest(request *dap.RestartRequest) {
 func (ds *fakeDebugSession) OnSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
 	source := request.Arguments.Source
 	ds.source = source
+	code, err := os.ReadFile(ds.source.Path)
+	if err != nil {
+		panic(fmt.Sprintf("could not read source file=%s", ds.source.Path))
+	}
+
+	ds.Driver.StartVM(string(code))
+	log.Printf("running vm with code=%s\n", string(code))
+
 	ds.breakPoints = request.Arguments.Breakpoints
 	response := &dap.SetBreakpointsResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
@@ -394,7 +408,6 @@ func (ds *fakeDebugSession) OnPauseRequest(request *dap.PauseRequest) {
 }
 
 func (ds *fakeDebugSession) OnStackTraceRequest(request *dap.StackTraceRequest) {
-	currentBp := ds.breakPoints[0]
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	response.Body = dap.StackTraceResponseBody{
@@ -402,7 +415,7 @@ func (ds *fakeDebugSession) OnStackTraceRequest(request *dap.StackTraceRequest) 
 			{
 				Id:     1000,
 				Source: &ds.source,
-				Line:   currentBp.Line,
+				Line:   ds.Driver.VMLocation(),
 				Column: 0,
 				Name:   "main.main",
 			},

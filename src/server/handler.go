@@ -3,11 +3,14 @@ package main
 import (
 	"time"
 
+	"monkeylang-debug/driver"
+
 	"github.com/google/go-dap"
 )
 
 type FakeHandler struct {
 	session *fakeDebugSession
+	Driver  driver.Driver
 }
 
 func (h *FakeHandler) SetSession(s *fakeDebugSession) {
