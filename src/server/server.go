@@ -67,6 +67,7 @@ func StartSession(conn io.ReadWriteCloser) {
 		rw:        bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn)),
 		sendQueue: make(chan dap.Message),
 		stopDebug: make(chan struct{}),
+		Driver:    driver.New(),
 	}
 	debugSession.handler = &debugSession
 	//debugSession.handler.SetSession(&debugSession)
@@ -119,7 +120,7 @@ func (ds *fakeDebugSession) doContinue() {
 		}
 	} else {
 
-		err := ds.Driver.RunUntilBreakPoint(ds.breakPoints[0].Line - 1)
+		err := ds.Driver.RunUntilBreakPoint(ds.breakPoints[0].Line)
 		if err != nil {
 			log.Printf("error runnig VM: %s", err)
 		}
@@ -142,7 +143,7 @@ func (ds *fakeDebugSession) handleRequest() error {
 		return err
 	}
 	log.Printf("Received request\n\t%#v\n", request)
-	log.Printf("%v", ds.breakPoints)
+	log.Printf("Breakpoints: %v", ds.breakPoints)
 	ds.sendWg.Add(1)
 	go func() {
 		ds.dispatchRequest(request)
@@ -419,7 +420,7 @@ func (ds *fakeDebugSession) OnStackTraceRequest(request *dap.StackTraceRequest) 
 			{
 				Id:     1000,
 				Source: &ds.source,
-				Line:   ds.Driver.VMLocation() + 1,
+				Line:   ds.Driver.VMLocation(),
 				Column: 0,
 				Name:   "main.main",
 			},
