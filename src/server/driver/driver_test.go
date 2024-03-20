@@ -19,12 +19,12 @@ let squareAndDouble = fn(a) {
 	let b = square(a) * 2
 	return b
 }
-squareAndDouble(2)
-square(2)`,
+let z = square(2)
+let y = squareAndDouble(2)`,
 
 			breakPoints: []breakpoint{
 				{line: 2, col: 0},
-				{line: 8, col: 0},
+				{line: 9, col: 0},
 			},
 		},
 	}
