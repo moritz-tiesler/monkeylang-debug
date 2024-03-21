@@ -16,7 +16,4 @@ func main() {
 	flag.Parse()
 	stream := StdioReadWriteCloser{}
 	StartSession(stream)
-	if err != nil {
-		log.Fatal("Could not start server: ", err)
-	}
 }

@@ -17,12 +17,13 @@ type breakpoint struct {
 
 type Driver struct {
 	VM          *vm.VM
-	breakPoints map[*object.CompiledFunction][]breakpoint
+	Breakpoints map[*object.CompiledFunction][]breakpoint
+	Source      string
 }
 
-func New() Driver {
-	return Driver{
-		breakPoints: make(map[*object.CompiledFunction][]breakpoint),
+func New() *Driver {
+	return &Driver{
+		Breakpoints: make(map[*object.CompiledFunction][]breakpoint),
 	}
 }
 
@@ -42,12 +43,12 @@ func (d *Driver) StartVM(sourceCode string) error {
 
 func (d *Driver) saveBreakpoint(line int) {
 	bp := breakpoint{line: line, col: 0}
-	existingBreakpoints := d.breakPoints[d.VM.CurrentFrame().Closure().Fn]
-	d.breakPoints[d.VM.CurrentFrame().Closure().Fn] = append(existingBreakpoints, bp)
+	existingBreakpoints := d.Breakpoints[d.VM.CurrentFrame().Closure().Fn]
+	d.Breakpoints[d.VM.CurrentFrame().Closure().Fn] = append(existingBreakpoints, bp)
 }
 
 func (d *Driver) runSavedBreakpoints() error {
-	for _, bps := range d.breakPoints {
+	for _, bps := range d.Breakpoints {
 		for _, bp := range bps {
 			line := bp.line
 

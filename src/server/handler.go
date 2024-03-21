@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"monkeylang-debug/driver"
@@ -8,16 +11,22 @@ import (
 	"github.com/google/go-dap"
 )
 
-type FakeHandler struct {
-	session *fakeDebugSession
-	Driver  driver.Driver
+type MonkeyHandler struct {
+	session *Session
+	Driver  *driver.Driver
 }
 
-func (h *FakeHandler) SetSession(s *fakeDebugSession) {
+func NewHandler() MonkeyHandler {
+	return MonkeyHandler{
+		Driver: driver.New(),
+	}
+}
+
+func (h *MonkeyHandler) SetSession(s *Session) {
 	h.session = s
 }
 
-func (h FakeHandler) OnInitializeRequest(request *dap.InitializeRequest) {
+func (h MonkeyHandler) OnInitializeRequest(request *dap.InitializeRequest) {
 	response := &dap.InitializeResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	response.Body.SupportsConfigurationDoneRequest = true
@@ -61,7 +70,7 @@ func (h FakeHandler) OnInitializeRequest(request *dap.InitializeRequest) {
 	h.session.send(response)
 }
 
-func (h FakeHandler) OnLaunchRequest(request *dap.LaunchRequest) {
+func (h MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 	// This is where a real debug adaptor would check the soundness of the
 	// arguments (e.g. program from launch.json) and then use them to launch the
 	// debugger and attach to the program.
@@ -70,25 +79,40 @@ func (h FakeHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 	h.session.send(response)
 }
 
-func (h FakeHandler) OnAttachRequest(request *dap.AttachRequest) {
+func (h MonkeyHandler) OnAttachRequest(request *dap.AttachRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "AttachRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnDisconnectRequest(request *dap.DisconnectRequest) {
+func (h MonkeyHandler) OnDisconnectRequest(request *dap.DisconnectRequest) {
 	response := &dap.DisconnectResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
 }
 
-func (h FakeHandler) OnTerminateRequest(request *dap.TerminateRequest) {
+func (h MonkeyHandler) OnTerminateRequest(request *dap.TerminateRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "TerminateRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnRestartRequest(request *dap.RestartRequest) {
+func (h MonkeyHandler) OnRestartRequest(request *dap.RestartRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "RestartRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
+func (h MonkeyHandler) OnSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
+	source := request.Arguments.Source
+	h.Driver.Source = source.Path
+	h.session.source = source
+	code, err := os.ReadFile(source.Path)
+	if err != nil {
+		panic(fmt.Sprintf("could not read source file=%s", source.Path))
+	}
+
+	err = h.Driver.StartVM(string(code))
+	if err != nil {
+		log.Fatalf("could not start vm")
+	}
+	log.Printf("running vm with code=%s\n", string(code))
+
+	h.session.breakPoints = request.Arguments.Breakpoints
 	response := &dap.SetBreakpointsResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	response.Body.Breakpoints = make([]dap.Breakpoint, len(request.Arguments.Breakpoints))
@@ -102,17 +126,17 @@ func (h FakeHandler) OnSetBreakpointsRequest(request *dap.SetBreakpointsRequest)
 	h.session.send(response)
 }
 
-func (h FakeHandler) OnSetFunctionBreakpointsRequest(request *dap.SetFunctionBreakpointsRequest) {
+func (h MonkeyHandler) OnSetFunctionBreakpointsRequest(request *dap.SetFunctionBreakpointsRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "SetFunctionBreakpointsRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnSetExceptionBreakpointsRequest(request *dap.SetExceptionBreakpointsRequest) {
+func (h MonkeyHandler) OnSetExceptionBreakpointsRequest(request *dap.SetExceptionBreakpointsRequest) {
 	response := &dap.SetExceptionBreakpointsResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
 }
 
-func (h FakeHandler) OnConfigurationDoneRequest(request *dap.ConfigurationDoneRequest) {
+func (h MonkeyHandler) OnConfigurationDoneRequest(request *dap.ConfigurationDoneRequest) {
 	// This would be the place to check if the session was configured to
 	// stop on entry and if that is the case, to issue a
 	// stopped-on-breakpoint event. This being a mock implementation,
@@ -122,67 +146,76 @@ func (h FakeHandler) OnConfigurationDoneRequest(request *dap.ConfigurationDoneRe
 	response := &dap.ConfigurationDoneResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
-	h.session.doContinue()
+
+	se := &dap.StoppedEvent{
+		Event: *newEvent("stopped"),
+		Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
+	}
+	h.session.send(se)
+	//h.session.doContinue()
 }
 
-func (h FakeHandler) OnContinueRequest(request *dap.ContinueRequest) {
+func (h MonkeyHandler) OnContinueRequest(request *dap.ContinueRequest) {
 	response := &dap.ContinueResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
 	h.session.doContinue()
 }
 
-func (h FakeHandler) OnNextRequest(request *dap.NextRequest) {
+func (h MonkeyHandler) OnNextRequest(request *dap.NextRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "NextRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnStepInRequest(request *dap.StepInRequest) {
+func (h MonkeyHandler) OnStepInRequest(request *dap.StepInRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "StepInRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnStepOutRequest(request *dap.StepOutRequest) {
+func (h MonkeyHandler) OnStepOutRequest(request *dap.StepOutRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "StepOutRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnStepBackRequest(request *dap.StepBackRequest) {
+func (h MonkeyHandler) OnStepBackRequest(request *dap.StepBackRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "StepBackRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnReverseContinueRequest(request *dap.ReverseContinueRequest) {
+func (h MonkeyHandler) OnReverseContinueRequest(request *dap.ReverseContinueRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "ReverseContinueRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnRestartFrameRequest(request *dap.RestartFrameRequest) {
+func (h MonkeyHandler) OnRestartFrameRequest(request *dap.RestartFrameRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "RestartFrameRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnGotoRequest(request *dap.GotoRequest) {
+func (h MonkeyHandler) OnGotoRequest(request *dap.GotoRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "GotoRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnPauseRequest(request *dap.PauseRequest) {
+func (h MonkeyHandler) OnPauseRequest(request *dap.PauseRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "PauseRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
+func (h MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
+	log.Printf("VM: %v", h.Driver.VM)
+	log.Printf("VM LOCS: %v", h.Driver.VM.LocationMap)
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	response.Body = dap.StackTraceResponseBody{
 		StackFrames: []dap.StackFrame{
 			{
 				Id:     1000,
-				Source: &dap.Source{Name: "hello.go", Path: "/Users/foo/go/src/hello/hello.go", SourceReference: 0},
-				Line:   5,
+				Source: &h.session.source,
+				Line:   h.Driver.VMLocation(),
 				Column: 0,
 				Name:   "main.main",
 			},
 		},
+		//TotalFrames: 1,
 		TotalFrames: 1,
 	}
 	h.session.send(response)
 }
 
-func (h FakeHandler) OnScopesRequest(request *dap.ScopesRequest) {
+func (h MonkeyHandler) OnScopesRequest(request *dap.ScopesRequest) {
 	response := &dap.ScopesResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	response.Body = dap.ScopesResponseBody{
@@ -194,7 +227,7 @@ func (h FakeHandler) OnScopesRequest(request *dap.ScopesRequest) {
 	h.session.send(response)
 }
 
-func (h FakeHandler) OnVariablesRequest(request *dap.VariablesRequest) {
+func (h MonkeyHandler) OnVariablesRequest(request *dap.VariablesRequest) {
 	select {
 	case <-h.session.stopDebug:
 		return
@@ -210,19 +243,19 @@ func (h FakeHandler) OnVariablesRequest(request *dap.VariablesRequest) {
 	}
 }
 
-func (h FakeHandler) OnSetVariableRequest(request *dap.SetVariableRequest) {
+func (h MonkeyHandler) OnSetVariableRequest(request *dap.SetVariableRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "setVariableRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnSetExpressionRequest(request *dap.SetExpressionRequest) {
+func (h MonkeyHandler) OnSetExpressionRequest(request *dap.SetExpressionRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "SetExpressionRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnSourceRequest(request *dap.SourceRequest) {
+func (h MonkeyHandler) OnSourceRequest(request *dap.SourceRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "SourceRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnThreadsRequest(request *dap.ThreadsRequest) {
+func (h MonkeyHandler) OnThreadsRequest(request *dap.ThreadsRequest) {
 	response := &dap.ThreadsResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	response.Body = dap.ThreadsResponseBody{Threads: []dap.Thread{{Id: 1, Name: "main"}}}
@@ -230,54 +263,54 @@ func (h FakeHandler) OnThreadsRequest(request *dap.ThreadsRequest) {
 
 }
 
-func (h FakeHandler) OnTerminateThreadsRequest(request *dap.TerminateThreadsRequest) {
+func (h MonkeyHandler) OnTerminateThreadsRequest(request *dap.TerminateThreadsRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "TerminateRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnEvaluateRequest(request *dap.EvaluateRequest) {
+func (h MonkeyHandler) OnEvaluateRequest(request *dap.EvaluateRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "EvaluateRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnStepInTargetsRequest(request *dap.StepInTargetsRequest) {
+func (h MonkeyHandler) OnStepInTargetsRequest(request *dap.StepInTargetsRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "StepInTargetRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnGotoTargetsRequest(request *dap.GotoTargetsRequest) {
+func (h MonkeyHandler) OnGotoTargetsRequest(request *dap.GotoTargetsRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "GotoTargetRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnCompletionsRequest(request *dap.CompletionsRequest) {
+func (h MonkeyHandler) OnCompletionsRequest(request *dap.CompletionsRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "CompletionRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnExceptionInfoRequest(request *dap.ExceptionInfoRequest) {
+func (h MonkeyHandler) OnExceptionInfoRequest(request *dap.ExceptionInfoRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "ExceptionRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnLoadedSourcesRequest(request *dap.LoadedSourcesRequest) {
+func (h MonkeyHandler) OnLoadedSourcesRequest(request *dap.LoadedSourcesRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "LoadedRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnDataBreakpointInfoRequest(request *dap.DataBreakpointInfoRequest) {
+func (h MonkeyHandler) OnDataBreakpointInfoRequest(request *dap.DataBreakpointInfoRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "DataBreakpointInfoRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnSetDataBreakpointsRequest(request *dap.SetDataBreakpointsRequest) {
+func (h MonkeyHandler) OnSetDataBreakpointsRequest(request *dap.SetDataBreakpointsRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "SetDataBreakpointsRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnReadMemoryRequest(request *dap.ReadMemoryRequest) {
+func (h MonkeyHandler) OnReadMemoryRequest(request *dap.ReadMemoryRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "ReadMemoryRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnDisassembleRequest(request *dap.DisassembleRequest) {
+func (h MonkeyHandler) OnDisassembleRequest(request *dap.DisassembleRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "DisassembleRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnCancelRequest(request *dap.CancelRequest) {
+func (h MonkeyHandler) OnCancelRequest(request *dap.CancelRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "CancelRequest is not yet supported"))
 }
 
-func (h FakeHandler) OnBreakpointLocationsRequest(request *dap.BreakpointLocationsRequest) {
+func (h MonkeyHandler) OnBreakpointLocationsRequest(request *dap.BreakpointLocationsRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "BreakpointLocationsRequest is not yet supported"))
 }
