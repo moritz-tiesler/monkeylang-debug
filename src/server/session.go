@@ -91,7 +91,7 @@ func (ds *Session) doContinue() {
 		}
 	} else {
 
-		err := ds.Handler.Driver.RunUntilBreakPoint(ds.breakPoints[0].Line)
+		err, _ := ds.Handler.Driver.RunUntilBreakPoint(ds.breakPoints[0].Line)
 		if err != nil {
 			log.Printf("error runnig VM: %s", err)
 		}

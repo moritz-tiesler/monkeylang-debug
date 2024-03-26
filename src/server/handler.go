@@ -199,12 +199,13 @@ func (h MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	log.Printf("VM LOCS: %v", h.Driver.VM.LocationMap)
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
+	vmLoc := h.Driver.VMLocation()
 	response.Body = dap.StackTraceResponseBody{
 		StackFrames: []dap.StackFrame{
 			{
 				Id:     1000,
 				Source: &h.session.source,
-				Line:   h.Driver.VMLocation(),
+				Line:   vmLoc,
 				Column: 0,
 				Name:   "main.main",
 			},

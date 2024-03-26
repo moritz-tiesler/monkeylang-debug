@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"monkey/compiler"
 	"monkey/lexer"
-	"monkey/object"
 	"monkey/parser"
 	"monkey/vm"
+	"strings"
 )
 
 type breakpoint struct {
@@ -16,15 +16,47 @@ type breakpoint struct {
 }
 
 type Driver struct {
-	VM          *vm.VM
-	Breakpoints map[*object.CompiledFunction][]breakpoint
-	Source      string
+	VM                  *vm.VM
+	Breakpoints         []breakpoint
+	Source              string
+	SourceCode          string
+	stoppedOnBreakpoint bool
 }
+
 
 func New() *Driver {
 	return &Driver{
-		Breakpoints: make(map[*object.CompiledFunction][]breakpoint),
+		Breakpoints:         make([]breakpoint, 0),
+		stoppedOnBreakpoint: false,
 	}
+}
+
+func (d *Driver) State() string {
+	state := ""
+
+	lines := strings.Split(d.SourceCode, "\n")
+	for i, l := range lines {
+		padding := ""
+		lineNum := i + 1
+		for _, bp := range d.Breakpoints {
+			if bp.line == lineNum {
+				padding = padding + "#"
+				break
+			}
+		}
+		vmLoc := d.VM.SourceLocation()
+		if vmLoc.Range.Start.Line  == lineNum {
+			padding = padding + "->"
+		}
+
+		for len(padding) < 4 {
+			padding = padding + " "
+		}
+
+		state = state + "\n" + padding + l
+
+	}
+	return state
 }
 
 func (d *Driver) StartVM(sourceCode string) error {
@@ -41,47 +73,44 @@ func (d *Driver) StartVM(sourceCode string) error {
 	return nil
 }
 
-func (d *Driver) saveBreakpoint(line int) {
-	bp := breakpoint{line: line, col: 0}
-	existingBreakpoints := d.Breakpoints[d.VM.CurrentFrame().Closure().Fn]
-	d.Breakpoints[d.VM.CurrentFrame().Closure().Fn] = append(existingBreakpoints, bp)
-}
+//cfunc (d *Driver) saveBreakpoint(line int) {
+//cbp := breakpoint{line: line, col: 0}
+//cexistingBreakpoints := d.Breakpoints[d.VM.CurrentFrame().Closure().Fn]
+//cd.Breakpoints[d.VM.CurrentFrame().Closure().Fn] = append(existingBreakpoints, bp)
+//c}
 
-func (d *Driver) runSavedBreakpoints() error {
-	for _, bps := range d.Breakpoints {
-		for _, bp := range bps {
-			line := bp.line
+//func (d *Driver) runSavedBreakpoints() error {
+	//for _, bps := range d.Breakpoints {
+		//for _, bp := range bps {
+			//line := bp.line
 
-			runCondition := func(vm *vm.VM) (bool, error) {
-				executionLine := vm.SourceLocation().Range.Start.Line
-				if line == executionLine {
-					vm.CurrentFrame().Ip--
-					return true, nil
-				} else {
-					return false, nil
-				}
-			}
+			//runCondition := func(vm *vm.VM) (bool, error) {
+				//executionLine := vm.SourceLocation().Range.Start.Line
+				//if line == executionLine {
+					//vm.CurrentFrame().Ip--
+					//return true, nil
+				//} else {
+					//return false, nil
+				//}
+			//}
 
-			vm, err := d.VM.RunWithCondition(runCondition)
-			if err != nil {
-				return err
-			}
-			d.VM = vm
-		}
-	}
-	return nil
-}
+			//vm, err := d.VM.RunWithCondition(runCondition)
+			//if err != nil {
+				//return err
+			//}
+			//d.VM = vm
+		//}
+	//}
+	//return nil
+//}
 
-func (d *Driver) RunUntilBreakPoint(line int) error {
-	err := d.runSavedBreakpoints()
-	if err != nil {
-		return err
-	}
-	line = line - 1
+func (d *Driver) StepOver() error  {
+	staringLoc := d.VM.SourceLocation()
+	startingLine := staringLoc.Range.Start.Line
 	runCondition := func(vm *vm.VM) (bool, error) {
-		executionLine := vm.SourceLocation().Range.Start.Line
-		if line == executionLine {
-			d.saveBreakpoint(executionLine)
+		cycleLocation := vm.SourceLocation()
+		cycleLine := cycleLocation.Range.Start.Line
+		if cycleLine != startingLine {
 			vm.CurrentFrame().Ip--
 			return true, nil
 		} else {
@@ -89,15 +118,83 @@ func (d *Driver) RunUntilBreakPoint(line int) error {
 		}
 	}
 
-	vm, err := d.VM.RunWithCondition(runCondition)
+	vm, err, _ := d.VM.RunWithCondition(runCondition)
 	if err != nil {
-		return err
+		return err 
 	}
-
 	d.VM = vm
+	d.stoppedOnBreakpoint = false
 	return nil
 }
 
-func (d Driver) VMLocation() int {
-	return d.VM.SourceLocation().Range.Start.Line + 1
+func (d *Driver) RunWithBreakpoints(bps []breakpoint) error  {
+	//runCondition := func(vm *vm.VM) (bool, error) {
+	//executionLine := vm.SourceLocation().Range.Start.Line
+	//for _, bp := range bps {
+	//if executionLine == bp.line-1 {
+	//vm.CurrentFrame().Ip--
+	//return true, nil
+	//}
+
+	//}
+	//return false, nil
+	//}
+
+	// TODO: check whether the vm is currently at a breakpoint and if so, cycle once to
+	// avoid hitting the same breakpoint again immideatly
+	if d.stoppedOnBreakpoint {
+		d.StepOver()
+	}
+	
+	d.Breakpoints = bps
+	for _, bp := range bps {
+		tempCopy := d.VM.Copy()
+		err, hitBp := d.RunUntilBreakPoint(bp.line)
+		if err != nil {
+			return err 
+		}
+		if hitBp{
+			d.stoppedOnBreakpoint = true
+			break
+		// TODO: if bp was not hit run the next bp with a copy of the vm BEFORE the previous bp was tried
+		} else {
+			d.VM = tempCopy 
+			d.stoppedOnBreakpoint = false
+			continue
+		}
+	}
+
+	return nil 
+}
+
+func (d *Driver) RunUntilBreakPoint(line int) (error, bool) {
+	//err := d.runSavedBreakpoints()
+	//if err != nil {
+	//return err
+	//}
+	runCondition := func(vm *vm.VM) (bool, error) {
+		executionLoc := vm.SourceLocation()
+		executionLine := executionLoc.Range.Start.Line
+		if line == executionLine {
+			//d.saveBreakpoint(executionLine)
+			vm.CurrentFrame().Ip--
+			return true, nil
+		} else {
+			return false, nil
+		}
+	}
+
+	vm, err, breakPointHit := d.VM.RunWithCondition(runCondition)
+	if err != nil {
+		return err, false
+	}
+
+	d.VM = vm
+	return nil, breakPointHit
+}
+
+func (d Driver) VMLocation() int{
+
+	loc := d.VM.SourceLocation()
+	return loc.Range.End.Line 
 }
