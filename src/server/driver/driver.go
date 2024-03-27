@@ -23,7 +23,6 @@ type Driver struct {
 	stoppedOnBreakpoint bool
 }
 
-
 func New() *Driver {
 	return &Driver{
 		Breakpoints:         make([]breakpoint, 0),
@@ -45,7 +44,7 @@ func (d *Driver) State() string {
 			}
 		}
 		vmLoc := d.VM.SourceLocation()
-		if vmLoc.Range.Start.Line  == lineNum {
+		if vmLoc.Range.Start.Line == lineNum {
 			padding = padding + "->"
 		}
 
@@ -73,38 +72,7 @@ func (d *Driver) StartVM(sourceCode string) error {
 	return nil
 }
 
-//cfunc (d *Driver) saveBreakpoint(line int) {
-//cbp := breakpoint{line: line, col: 0}
-//cexistingBreakpoints := d.Breakpoints[d.VM.CurrentFrame().Closure().Fn]
-//cd.Breakpoints[d.VM.CurrentFrame().Closure().Fn] = append(existingBreakpoints, bp)
-//c}
-
-//func (d *Driver) runSavedBreakpoints() error {
-	//for _, bps := range d.Breakpoints {
-		//for _, bp := range bps {
-			//line := bp.line
-
-			//runCondition := func(vm *vm.VM) (bool, error) {
-				//executionLine := vm.SourceLocation().Range.Start.Line
-				//if line == executionLine {
-					//vm.CurrentFrame().Ip--
-					//return true, nil
-				//} else {
-					//return false, nil
-				//}
-			//}
-
-			//vm, err := d.VM.RunWithCondition(runCondition)
-			//if err != nil {
-				//return err
-			//}
-			//d.VM = vm
-		//}
-	//}
-	//return nil
-//}
-
-func (d *Driver) StepOver() error  {
+func (d *Driver) StepOver() error {
 	staringLoc := d.VM.SourceLocation()
 	startingLine := staringLoc.Range.Start.Line
 	runCondition := func(vm *vm.VM) (bool, error) {
@@ -120,63 +88,49 @@ func (d *Driver) StepOver() error  {
 
 	vm, err, _ := d.VM.RunWithCondition(runCondition)
 	if err != nil {
-		return err 
+		return err
 	}
 	d.VM = vm
 	d.stoppedOnBreakpoint = false
 	return nil
 }
 
-func (d *Driver) RunWithBreakpoints(bps []breakpoint) error  {
-	//runCondition := func(vm *vm.VM) (bool, error) {
-	//executionLine := vm.SourceLocation().Range.Start.Line
-	//for _, bp := range bps {
-	//if executionLine == bp.line-1 {
-	//vm.CurrentFrame().Ip--
-	//return true, nil
-	//}
+func (d *Driver) RunWithBreakpoints(bps []breakpoint) (error, bool) {
 
-	//}
-	//return false, nil
-	//}
-
-	// TODO: check whether the vm is currently at a breakpoint and if so, cycle once to
-	// avoid hitting the same breakpoint again immideatly
 	if d.stoppedOnBreakpoint {
 		d.StepOver()
 	}
-	
-	d.Breakpoints = bps
-	for _, bp := range bps {
-		tempCopy := d.VM.Copy()
-		err, hitBp := d.RunUntilBreakPoint(bp.line)
-		if err != nil {
-			return err 
+
+	runCondition := func(vm *vm.VM) (bool, error) {
+		executionLoc := vm.SourceLocation()
+		executionLine := executionLoc.Range.Start.Line
+		for _, bp := range bps {
+
+			if bp.line == executionLine {
+				d.stoppedOnBreakpoint = true
+				//d.saveBreakpoint(executionLine)
+				vm.CurrentFrame().Ip--
+				return true, nil
+			}
 		}
-		if hitBp{
-			d.stoppedOnBreakpoint = true
-			break
-		// TODO: if bp was not hit run the next bp with a copy of the vm BEFORE the previous bp was tried
-		} else {
-			d.VM = tempCopy 
-			d.stoppedOnBreakpoint = false
-			continue
-		}
+		d.stoppedOnBreakpoint = false
+		return false, nil
 	}
 
-	return nil 
+	vm, err, breakPointHit := d.VM.RunWithCondition(runCondition)
+	if err != nil {
+		return err, false
+	}
+	d.VM = vm
+
+	return nil, breakPointHit
 }
 
 func (d *Driver) RunUntilBreakPoint(line int) (error, bool) {
-	//err := d.runSavedBreakpoints()
-	//if err != nil {
-	//return err
-	//}
 	runCondition := func(vm *vm.VM) (bool, error) {
 		executionLoc := vm.SourceLocation()
 		executionLine := executionLoc.Range.Start.Line
 		if line == executionLine {
-			//d.saveBreakpoint(executionLine)
 			vm.CurrentFrame().Ip--
 			return true, nil
 		} else {
@@ -193,8 +147,8 @@ func (d *Driver) RunUntilBreakPoint(line int) (error, bool) {
 	return nil, breakPointHit
 }
 
-func (d Driver) VMLocation() int{
+func (d Driver) VMLocation() int {
 
 	loc := d.VM.SourceLocation()
-	return loc.Range.End.Line 
+	return loc.Range.End.Line
 }

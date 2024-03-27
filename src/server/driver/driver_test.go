@@ -110,12 +110,12 @@ let bb = y`,
 
 		actualHits := []breakpoint{}
 		for j := 0; j < len(tt.expectedHits); j++ {
-			err := driver.RunWithBreakpoints(tt.breakPoints)
+			err, bpHit := driver.RunWithBreakpoints(tt.breakPoints)
 			//t.Logf(driver.State())
 			if err != nil {
 				t.Errorf("%s\n", err)
 			}
-			if true {
+			if bpHit {
 				vmLoc := driver.VM.SourceLocation()
 				vmHit := vmLoc.Range.Start.Line
 				t.Logf("vmHit=%v", vmHit)
