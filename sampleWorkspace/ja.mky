@@ -1,0 +1,9 @@
+let square = fn(x) {
+    return x * x
+}
+let squareAndDouble = fn(a) {
+    let b = square(a) * 2
+    return b
+}
+squareAndDouble(2)
+square(2)

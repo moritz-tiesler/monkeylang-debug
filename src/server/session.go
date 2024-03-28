@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/google/go-dap"
 )
@@ -76,35 +75,6 @@ func (ds *Session) sendFromQueue() {
 		log.Printf("Message sent\n\t%#v\n", message)
 		ds.rw.Flush()
 	}
-}
-
-func (ds *Session) doContinue() {
-	var e dap.Message
-	ds.bpSetMux.Lock()
-	if ds.bpSet == 0 {
-		// Pretend that the program is running.
-		// The delay will allow for all in-flight responses
-		// to be sent before termination.
-		time.Sleep(1000 * time.Millisecond)
-		e = &dap.TerminatedEvent{
-			Event: *newEvent("terminated"),
-		}
-	} else {
-
-		err, _ := ds.Handler.Driver.RunUntilBreakPoint(ds.breakPoints[0].Line)
-		if err != nil {
-			log.Printf("error runnig VM: %s", err)
-		}
-		log.Printf("Ran VM until %v\n", ds.Handler.Driver.VM.SourceLocation())
-		e = &dap.StoppedEvent{
-			Event: *newEvent("stopped"),
-			Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
-		}
-		ds.breakPoints = ds.breakPoints[1:]
-		ds.bpSet--
-	}
-	ds.bpSetMux.Unlock()
-	ds.send(e)
 }
 
 func (ds *Session) handleRequest() error {
