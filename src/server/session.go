@@ -84,7 +84,6 @@ func (ds *Session) handleRequest() error {
 		return err
 	}
 	log.Printf("Received request\n\t%#v\n", request)
-	log.Printf("Breakpoints: %v", ds.breakPoints)
 	ds.sendWg.Add(1)
 	go func() {
 		ds.dispatchRequest(request)

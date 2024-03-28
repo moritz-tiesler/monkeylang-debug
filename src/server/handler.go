@@ -101,6 +101,13 @@ func (h *MonkeyHandler) OnRestartRequest(request *dap.RestartRequest) {
 }
 
 func (h *MonkeyHandler) OnSetBreakpointsRequest(request *dap.SetBreakpointsRequest) {
+	bps := request.Arguments.Breakpoints
+	lines := make([]int, len(bps))
+	for i, bp := range bps {
+		lines[i] = bp.Line
+	}
+	h.Driver.SetBreakPoints(lines)
+
 	source := request.Arguments.Source
 	h.Driver.Source = source.Path
 	h.session.source = source
@@ -113,18 +120,14 @@ func (h *MonkeyHandler) OnSetBreakpointsRequest(request *dap.SetBreakpointsReque
 	if err != nil {
 		log.Fatalf("could not start vm")
 	}
-	log.Printf("running vm with code=%s\n", string(code))
+	log.Printf("started vm with code=%s\n", string(code))
 
-	h.session.breakPoints = request.Arguments.Breakpoints
 	response := &dap.SetBreakpointsResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	response.Body.Breakpoints = make([]dap.Breakpoint, len(request.Arguments.Breakpoints))
 	for i, b := range request.Arguments.Breakpoints {
 		response.Body.Breakpoints[i].Line = b.Line
 		response.Body.Breakpoints[i].Verified = true
-		h.session.bpSetMux.Lock()
-		h.session.bpSet++
-		h.session.bpSetMux.Unlock()
 	}
 	h.session.send(response)
 }
@@ -164,13 +167,15 @@ func (h *MonkeyHandler) OnContinueRequest(request *dap.ContinueRequest) {
 	var e dap.Message
 	h.bpSetMux.Lock()
 	bps := h.Driver.Breakpoints
+	log.Printf("Breakpoints: %v", bps)
 	err, _ := h.Driver.RunWithBreakpoints(bps)
-	state := h.Driver.VM.State()
 	if err != nil {
 		log.Printf("error runnig VM: %s", err)
 	}
 	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
-	switch state {
+	switch h.Driver.VM.State() {
+	case vm.OFF:
+		return
 	case vm.STOPPED:
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
@@ -187,7 +192,41 @@ func (h *MonkeyHandler) OnContinueRequest(request *dap.ContinueRequest) {
 }
 
 func (h *MonkeyHandler) OnNextRequest(request *dap.NextRequest) {
-	h.session.send(newErrorResponse(request.Seq, request.Command, "NextRequest is not yet supported"))
+	acknowledgement := &dap.NextResponse{}
+	acknowledgement.Response = *newResponse(request.Seq, request.Command)
+	h.session.send(acknowledgement)
+
+	log.Printf("sent acknowledgement")
+
+	command := request.Command
+	switch command {
+	case "next":
+		log.Printf("Received command=%s", command)
+		err, _ := h.Driver.StepOver()
+		log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
+		log.Printf("VM State=%s", h.Driver.VMState().String())
+
+		if err != nil {
+			log.Printf("error handling NextRequest: %s", err)
+		}
+	}
+
+	var e dap.Message
+	switch h.Driver.VM.State() {
+	case vm.OFF:
+
+	case vm.STOPPED:
+		e = &dap.StoppedEvent{
+			Event: *newEvent("stopped"),
+			Body:  dap.StoppedEventBody{Reason: "step", ThreadId: 1, AllThreadsStopped: true},
+		}
+	case vm.DONE:
+		e = &dap.TerminatedEvent{
+			Event: *newEvent("terminated"),
+		}
+	}
+	h.session.send(e)
+
 }
 
 func (h *MonkeyHandler) OnStepInRequest(request *dap.StepInRequest) {
@@ -219,8 +258,6 @@ func (h *MonkeyHandler) OnPauseRequest(request *dap.PauseRequest) {
 }
 
 func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
-	log.Printf("VM: %v", h.Driver.VM)
-	log.Printf("VM LOCS: %v", h.Driver.VM.LocationMap)
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	vmLoc := h.Driver.VMLocation()
@@ -234,7 +271,6 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 				Name:   "main.main",
 			},
 		},
-		//TotalFrames: 1,
 		TotalFrames: 1,
 	}
 	h.session.send(response)

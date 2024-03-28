@@ -137,6 +137,37 @@ let bb = y`,
 func TestStepOver(t *testing.T) {
 	tests := []driverTestCase{
 		{
+			sourceCode: `
+let func = fn(a) {a}
+let res = func(4)
+let res = func(4)`,
+
+			breakPoints: []breakpoint{
+				{line: 3, col: 0},
+			},
+			expectedLocation: 4,
+		},
+		{
+			sourceCode: `
+let func = fn(a) {a}
+let res =func(4)
+let res =func(4)`,
+
+			breakPoints: []breakpoint{
+				{line: 4, col: 0},
+			},
+			expectedLocation: 0,
+		},
+		{
+			sourceCode: `
+let func = fn(a) {a}
+let res =func(4)
+let res =func(4)`,
+
+			breakPoints:      []breakpoint{},
+			expectedLocation: 2,
+		},
+		{
 			sourceCode: `let square = fn(x) {
 	return x * x
 }
@@ -153,6 +184,26 @@ let bogus = 3`,
 			},
 			expectedLocation: 8,
 		},
+		{
+			sourceCode: `
+let x = 2
+x`,
+
+			breakPoints: []breakpoint{
+				{line: 2, col: 0},
+			},
+			expectedLocation: 3,
+		},
+		{
+			sourceCode: `
+let x = 2
+x`,
+
+			breakPoints: []breakpoint{
+				{line: 3, col: 0},
+			},
+			expectedLocation: 0,
+		},
 	}
 
 	for i, tt := range tests {
@@ -167,13 +218,14 @@ let bogus = 3`,
 			driver.RunUntilBreakPoint(bp.line)
 			driver.StepOver()
 			t.Logf(driver.State())
+			t.Logf("%d", driver.VM.State())
 		}
 
 		expected := tt.expectedLocation
 		vmLoc := driver.VM.SourceLocation()
 		actual := vmLoc.Range.Start.Line
 		if expected != actual {
-			t.Errorf("error in breaktpoint test %d", i)
+			t.Errorf("error in breaktpoint test %d", i+1)
 			t.Errorf("wrong breakpoint line: expected line=%d, got line=%d", expected, actual)
 		}
 	}

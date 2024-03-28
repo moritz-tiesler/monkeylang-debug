@@ -23,11 +23,46 @@ type Driver struct {
 	stoppedOnBreakpoint bool
 }
 
+type vmState int
+
+const (
+	OFF vmState = iota
+	STOPPED
+	DONE
+)
+
+func (d Driver) VMState() vmState {
+
+	return vmState(d.VM.State())
+}
+
+func (st vmState) String() string {
+	var s string
+	switch st {
+	case OFF:
+		s = "OFF"
+	case STOPPED:
+		s = "STOPPED"
+	case DONE:
+		s = "DONE"
+	}
+
+	return s
+}
+
 func New() *Driver {
 	return &Driver{
 		Breakpoints:         make([]breakpoint, 0),
 		stoppedOnBreakpoint: false,
 	}
+}
+
+func (d *Driver) SetBreakPoints(lines []int) {
+	bps := make([]breakpoint, len(lines))
+	for i, l := range lines {
+		bps[i] = breakpoint{line: l}
+	}
+	d.Breakpoints = bps
 }
 
 func (d *Driver) State() string {
@@ -72,27 +107,33 @@ func (d *Driver) StartVM(sourceCode string) error {
 	return nil
 }
 
-func (d *Driver) StepOver() error {
+// TODO check this function. Check scope before stepping and during stepping
+func (d *Driver) StepOver() (error, bool) {
 	staringLoc := d.VM.SourceLocation()
 	startingLine := staringLoc.Range.Start.Line
+	startingDepth := staringLoc.Depth
+
 	runCondition := func(vm *vm.VM) (bool, error) {
 		cycleLocation := vm.SourceLocation()
 		cycleLine := cycleLocation.Range.Start.Line
-		if cycleLine != startingLine {
-			vm.CurrentFrame().Ip--
+		cycleDepth := cycleLocation.Depth
+		if cycleLine != startingLine && cycleDepth <= startingDepth {
+			if !(d.VMState() == DONE) {
+				vm.CurrentFrame().Ip--
+			}
 			return true, nil
 		} else {
 			return false, nil
 		}
 	}
 
-	vm, err, _ := d.VM.RunWithCondition(runCondition)
+	vm, err, conditonMet := d.VM.RunWithCondition(runCondition)
 	if err != nil {
-		return err
+		return err, false
 	}
 	d.VM = vm
 	d.stoppedOnBreakpoint = false
-	return nil
+	return nil, conditonMet
 }
 
 func (d *Driver) RunWithBreakpoints(bps []breakpoint) (error, bool) {
@@ -108,7 +149,6 @@ func (d *Driver) RunWithBreakpoints(bps []breakpoint) (error, bool) {
 
 			if bp.line == executionLine {
 				d.stoppedOnBreakpoint = true
-				//d.saveBreakpoint(executionLine)
 				vm.CurrentFrame().Ip--
 				return true, nil
 			}
