@@ -230,7 +230,41 @@ func (h *MonkeyHandler) OnNextRequest(request *dap.NextRequest) {
 }
 
 func (h *MonkeyHandler) OnStepInRequest(request *dap.StepInRequest) {
-	h.session.send(newErrorResponse(request.Seq, request.Command, "StepInRequest is not yet supported"))
+	acknowledgement := &dap.StepInResponse{}
+	acknowledgement.Response = *newResponse(request.Seq, request.Command)
+	h.session.send(acknowledgement)
+
+	log.Printf("sent acknowledgement")
+
+	command := request.Command
+	switch command {
+	case "stepIn":
+		log.Printf("Received command=%s", command)
+		err, _ := h.Driver.StepInto()
+		log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
+		log.Printf("VM State=%s", h.Driver.VMState().String())
+
+		if err != nil {
+			log.Printf("error handling NextRequest: %s", err)
+		}
+	}
+
+	var e dap.Message
+	switch h.Driver.VM.State() {
+	case vm.OFF:
+
+	case vm.STOPPED:
+		e = &dap.StoppedEvent{
+			Event: *newEvent("stopped"),
+			Body:  dap.StoppedEventBody{Reason: "step", ThreadId: 1, AllThreadsStopped: true},
+		}
+	case vm.DONE:
+		e = &dap.TerminatedEvent{
+			Event: *newEvent("terminated"),
+		}
+	}
+	h.session.send(e)
+
 }
 
 func (h *MonkeyHandler) OnStepOutRequest(request *dap.StepOutRequest) {

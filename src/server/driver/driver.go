@@ -107,16 +107,15 @@ func (d *Driver) StartVM(sourceCode string) error {
 	return nil
 }
 
-// TODO check this function. Check scope before stepping and during stepping
 func (d *Driver) StepOver() (error, bool) {
 	staringLoc := d.VM.SourceLocation()
 	startingLine := staringLoc.Range.Start.Line
-	startingDepth := staringLoc.Depth
+	startingDepth := d.VM.CallDepth
 
 	runCondition := func(vm *vm.VM) (bool, error) {
 		cycleLocation := vm.SourceLocation()
 		cycleLine := cycleLocation.Range.Start.Line
-		cycleDepth := cycleLocation.Depth
+		cycleDepth := d.VM.CallDepth
 		if cycleLine != startingLine && cycleDepth <= startingDepth {
 			if !(d.VMState() == DONE) {
 				vm.CurrentFrame().Ip--
@@ -136,6 +135,38 @@ func (d *Driver) StepOver() (error, bool) {
 	return nil, conditonMet
 }
 
+func (d *Driver) StepInto() (error, bool) {
+	staringLoc := d.VM.SourceLocation()
+	startingLine := staringLoc.Range.Start.Line
+	startingDepth := d.VM.CallDepth
+
+	runCondition := func(vm *vm.VM) (bool, error) {
+		cycleLocation := vm.SourceLocation()
+		cycleLine := cycleLocation.Range.Start.Line
+		cycleDepth := d.VM.CallDepth
+
+		// If we call StepOver on a line that has nothing to step into
+		// essentially the same as stepping over
+		if (cycleLine != startingLine && cycleDepth <= startingDepth) ||
+			// If we call StepOver on a line that has smth to step into
+			(cycleDepth > startingDepth) {
+			if !(d.VMState() == DONE) {
+				vm.CurrentFrame().Ip--
+			}
+			return true, nil
+		} else {
+			return false, nil
+		}
+	}
+
+	vm, err, conditonMet := d.VM.RunWithCondition(runCondition)
+	if err != nil {
+		return err, false
+	}
+	d.VM = vm
+	d.stoppedOnBreakpoint = false
+	return nil, conditonMet
+}
 func (d *Driver) RunWithBreakpoints(bps []breakpoint) (error, bool) {
 
 	if d.stoppedOnBreakpoint {
