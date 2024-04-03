@@ -252,3 +252,43 @@ func (d Driver) VMLocation() int {
 	loc := d.VM.SourceLocation()
 	return loc.Range.End.Line
 }
+
+type DebugFrame struct {
+	Id     int
+	Name   string
+	Source string
+	Line   int
+	Column int
+}
+
+func (d Driver) NewDebugFrame(id int, vmFrame *vm.Frame) DebugFrame {
+	name := vmFrame.Name()
+	source := d.Source
+	key := compiler.LocationKey{ScopeId: vmFrame.Closure().Fn, InstructionIndex: vmFrame.Ip + 1}
+	loc := d.VM.LocationMap[key]
+	line := loc.Range.Start.Line
+	col := loc.Range.Start.Col
+
+	return DebugFrame{
+		Id:     id,
+		Name:   name,
+		Source: source,
+		Line:   line,
+		Column: col,
+	}
+}
+
+func (d Driver) CollectFrames() []DebugFrame {
+	numFrames := d.VM.FramesIndex()
+	frames := make([]DebugFrame, numFrames)
+	for i := 0; i < numFrames; i++ {
+		vmFrame := d.VM.Frames()[i]
+		debugFrame := d.NewDebugFrame(i, vmFrame)
+		if i == 0 {
+			debugFrame.Name = "main"
+		}
+		debugFrame.Source = d.Source
+		frames[i] = debugFrame
+	}
+	return frames
+}

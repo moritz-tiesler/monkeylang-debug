@@ -419,3 +419,77 @@ x`,
 		}
 	}
 }
+
+type StackFrameTestCase struct {
+	sourceCode     string
+	breakPoint     breakpoint
+	expectedFrames []DebugFrame
+}
+
+func TestStackFrames(t *testing.T) {
+	tests := []StackFrameTestCase{
+		{
+			sourceCode: `
+let x = 2;
+x;
+			`,
+			breakPoint: breakpoint{
+				line: 3, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 3,
+				},
+			},
+		},
+		{
+			sourceCode: `
+let func = fn(x) {
+    let res = x + 1
+    return res
+}
+let m = func(2);
+			`,
+			breakPoint: breakpoint{
+				line: 4, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 6,
+				},
+				{
+					Id:   1,
+					Name: "func",
+					Line: 4,
+				},
+			},
+		},
+	}
+
+	for i, tt := range tests {
+		driver := New()
+		err := driver.StartVM(tt.sourceCode)
+		if err != nil {
+			t.Errorf("error starting VM: %s", err)
+		}
+		driver.RunUntilBreakPoint(tt.breakPoint.line)
+		t.Logf(driver.State())
+		t.Logf("%d", driver.VM.State())
+
+		for j, ff := range tt.expectedFrames {
+			expected := ff
+			actual := driver.CollectFrames()[j]
+			if expected.Line != actual.Line ||
+				expected.Name != actual.Name ||
+				expected.Id != actual.Id {
+				t.Errorf("error in stackframe test %d", i+1)
+				t.Errorf("wrong stackframe line: expected frame=%v, got frame=%v", expected, actual)
+			}
+		}
+	}
+
+}

@@ -318,20 +318,27 @@ func (h *MonkeyHandler) OnPauseRequest(request *dap.PauseRequest) {
 func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
-	vmLoc := h.Driver.VMLocation()
+	driverFrames := h.Driver.CollectFrames()
+	stackFrames := make([]dap.StackFrame, len(driverFrames))
+	// reverse the order: deepest stack frame must be first in array
+	for i := len(stackFrames) - 1; i >= 0; i-- {
+		stackFrames[i] = DAPStackFrame(driverFrames[len(stackFrames)-1-i])
+	}
 	response.Body = dap.StackTraceResponseBody{
-		StackFrames: []dap.StackFrame{
-			{
-				Id:     1000,
-				Source: &h.session.source,
-				Line:   vmLoc,
-				Column: 0,
-				Name:   "main.main",
-			},
-		},
-		TotalFrames: 1,
+		StackFrames: stackFrames,
+		TotalFrames: len(stackFrames),
 	}
 	h.session.send(response)
+}
+
+func DAPStackFrame(debugFrame driver.DebugFrame) dap.StackFrame {
+	return dap.StackFrame{
+		Id:     debugFrame.Id,
+		Name:   debugFrame.Name,
+		Source: &dap.Source{Path: debugFrame.Source},
+		Line:   debugFrame.Line,
+		Column: debugFrame.Line,
+	}
 }
 
 func (h *MonkeyHandler) OnScopesRequest(request *dap.ScopesRequest) {
