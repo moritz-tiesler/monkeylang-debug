@@ -145,11 +145,40 @@ func (d *Driver) StepInto() (error, bool) {
 		cycleLine := cycleLocation.Range.Start.Line
 		cycleDepth := d.VM.CallDepth
 
-		// If we call StepOver on a line that has nothing to step into
+		// If we call StepInto on a line that has nothing to step into
 		// essentially the same as stepping over
 		if (cycleLine != startingLine && cycleDepth <= startingDepth) ||
-			// If we call StepOver on a line that has smth to step into
+			// If we call StepInto on a line that has smth to step into
 			(cycleDepth > startingDepth) {
+			if !(d.VMState() == DONE) {
+				vm.CurrentFrame().Ip--
+			}
+			return true, nil
+		} else {
+			return false, nil
+		}
+	}
+
+	vm, err, conditonMet := d.VM.RunWithCondition(runCondition)
+	if err != nil {
+		return err, false
+	}
+	d.VM = vm
+	d.stoppedOnBreakpoint = false
+	return nil, conditonMet
+}
+
+func (d *Driver) StepOut() (error, bool) {
+	//staringLoc := d.VM.SourceLocation()
+	//startingLine := staringLoc.Range.Start.Line
+	startingDepth := d.VM.CallDepth
+
+	runCondition := func(vm *vm.VM) (bool, error) {
+		//cycleLocation := vm.SourceLocation()
+		//cycleLine := cycleLocation.Range.Start.Line
+		cycleDepth := d.VM.CallDepth
+
+		if cycleDepth < startingDepth {
 			if !(d.VMState() == DONE) {
 				vm.CurrentFrame().Ip--
 			}

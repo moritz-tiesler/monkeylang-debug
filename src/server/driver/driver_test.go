@@ -334,3 +334,88 @@ x`,
 		}
 	}
 }
+
+func TestStepOut(t *testing.T) {
+	tests := []driverTestCase{
+		{
+			sourceCode: `
+let square = fn(x) {
+	return x * x
+}
+let squareAndDouble = fn(a) {
+	let b = square(a) * 2
+	return b
+}
+let z = square(2)
+let y = squareAndDouble(2)
+let bogus = 3`,
+
+			breakPoints: []breakpoint{
+				{line: 10, col: 0},
+			},
+			expectedLocation: 0,
+		},
+		{
+			sourceCode: `
+let square = fn(x) {
+	return x * x
+}
+let squareAndDouble = fn(a) {
+	let b = square(a) * 2
+	return b
+}
+let z = square(2)
+let y = squareAndDouble(2)
+let bogus = 3`,
+
+			breakPoints: []breakpoint{
+				{line: 6, col: 0},
+			},
+			expectedLocation: 10,
+		},
+		{
+			sourceCode: `
+let x = 2
+x`,
+
+			breakPoints: []breakpoint{
+				{line: 2, col: 0},
+			},
+			expectedLocation: 0,
+		},
+		{
+			sourceCode: `
+let x = 2
+x`,
+
+			breakPoints: []breakpoint{
+				{line: 3, col: 0},
+			},
+			expectedLocation: 0,
+		},
+	}
+
+	for i, tt := range tests {
+		driver := New()
+		err := driver.StartVM(tt.sourceCode)
+		if err != nil {
+			t.Errorf("error starting VM: %s", err)
+		}
+		driver.Breakpoints = tt.breakPoints
+		driver.SourceCode = tt.sourceCode
+		for _, bp := range tt.breakPoints {
+			driver.RunUntilBreakPoint(bp.line)
+			driver.StepOut()
+			t.Logf(driver.State())
+			t.Logf("%d", driver.VM.State())
+		}
+
+		expected := tt.expectedLocation
+		vmLoc := driver.VM.SourceLocation()
+		actual := vmLoc.Range.Start.Line
+		if expected != actual {
+			t.Errorf("error in breaktpoint test %d", i+1)
+			t.Errorf("wrong breakpoint line: expected line=%d, got line=%d", expected, actual)
+		}
+	}
+}
