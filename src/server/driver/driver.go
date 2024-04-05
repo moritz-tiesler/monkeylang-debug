@@ -104,7 +104,7 @@ func (d *Driver) StartVM(sourceCode string) error {
 	if err != nil {
 		return fmt.Errorf("compilation error")
 	}
-	vm := vm.NewFromMain(compiler.MainFn(), compiler.Bytecode(), compiler.LocationMap)
+	vm := vm.NewFromMain(compiler.MainFn(), compiler.Bytecode(), compiler.LocationMap, compiler.NameStore)
 	d.VM = vm
 	return nil
 }
@@ -271,11 +271,6 @@ func (d Driver) NewDebugFrame(id int, vmFrame *vm.Frame) DebugFrame {
 	loc := d.VM.LocationMap[key]
 	line := loc.Range.Start.Line
 	col := loc.Range.Start.Col
-	objects := d.VM.ActiveObjects(*vmFrame)
-	vars := make([]DriverVar, len(objects))
-	for i, o := range objects {
-		vars[i] = ObjectToDriverVar(*o)
-	}
 
 	return DebugFrame{
 		Id:     id,
@@ -283,7 +278,6 @@ func (d Driver) NewDebugFrame(id int, vmFrame *vm.Frame) DebugFrame {
 		Source: source,
 		Line:   line,
 		Column: col,
-		Vars:   vars,
 	}
 }
 
@@ -297,10 +291,11 @@ func (d *Driver) CollectFrames() []DebugFrame {
 			debugFrame.Name = "main"
 		}
 		debugFrame.Source = d.Source
-		frameObjects := d.VM.ActiveObjects(*vmFrame)
+		frameObjects, names := d.VM.ActiveObjects(*vmFrame)
 		frameVars := make([]DriverVar, len(frameObjects))
 		for j, obj := range frameObjects {
-			frameVars[j] = ObjectToDriverVar(*obj)
+			name := names[obj]
+			frameVars[j] = ObjectToDriverVar(*obj, name)
 		}
 		debugFrame.Vars = frameVars
 		frames[i] = debugFrame
@@ -313,13 +308,22 @@ func (d *Driver) CollectFrames() []DebugFrame {
 type DriverVar struct {
 	Name               string
 	Value              string
+	Type               string
 	VariablesReference int
 }
 
-func ObjectToDriverVar(obj object.Object) DriverVar {
-	return DriverVar{
-		Name:               "var",
-		Value:              obj.Inspect(),
+func ObjectToDriverVar(obj object.Object, name string) DriverVar {
+	v := DriverVar{
+		Name:               name,
 		VariablesReference: 0,
 	}
+	switch obj := obj.(type) {
+	case *object.Closure:
+		v.Value = "function"
+		v.Type = "function"
+	default:
+		v.Value = obj.Inspect()
+		v.Type = string(obj.Type())
+	}
+	return v
 }

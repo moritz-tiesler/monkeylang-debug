@@ -451,6 +451,7 @@ func DriverVarToDAPVar(driverVar driver.DriverVar) dap.Variable {
 		Name:               driverVar.Name,
 		Value:              driverVar.Value,
 		VariablesReference: driverVar.VariablesReference,
+		Type:               driverVar.Type,
 	}
 }
 
