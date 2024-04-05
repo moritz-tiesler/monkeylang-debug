@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"monkey/vm"
 	"os"
 	"sync"
 	"time"
@@ -173,15 +172,15 @@ func (h *MonkeyHandler) OnContinueRequest(request *dap.ContinueRequest) {
 		log.Printf("error runnig VM: %s", err)
 	}
 	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
-	switch h.Driver.VM.State() {
-	case vm.OFF:
+	switch h.Driver.VMState() {
+	case driver.OFF:
 		return
-	case vm.STOPPED:
+	case driver.STOPPED:
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
 			Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
 		}
-	case vm.DONE:
+	case driver.DONE:
 		e = &dap.TerminatedEvent{
 			Event: *newEvent("terminated"),
 		}
@@ -209,15 +208,15 @@ func (h *MonkeyHandler) OnNextRequest(request *dap.NextRequest) {
 	}
 
 	var e dap.Message
-	switch h.Driver.VM.State() {
-	case vm.OFF:
+	switch h.Driver.VMState() {
+	case driver.OFF:
 
-	case vm.STOPPED:
+	case driver.STOPPED:
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
 			Body:  dap.StoppedEventBody{Reason: "step", ThreadId: 1, AllThreadsStopped: true},
 		}
-	case vm.DONE:
+	case driver.DONE:
 		e = &dap.TerminatedEvent{
 			Event: *newEvent("terminated"),
 		}
@@ -244,15 +243,15 @@ func (h *MonkeyHandler) OnStepInRequest(request *dap.StepInRequest) {
 	}
 
 	var e dap.Message
-	switch h.Driver.VM.State() {
-	case vm.OFF:
+	switch h.Driver.VMState() {
+	case driver.OFF:
 
-	case vm.STOPPED:
+	case driver.STOPPED:
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
 			Body:  dap.StoppedEventBody{Reason: "step", ThreadId: 1, AllThreadsStopped: true},
 		}
-	case vm.DONE:
+	case driver.DONE:
 		e = &dap.TerminatedEvent{
 			Event: *newEvent("terminated"),
 		}
@@ -279,15 +278,15 @@ func (h *MonkeyHandler) OnStepOutRequest(request *dap.StepOutRequest) {
 	}
 
 	var e dap.Message
-	switch h.Driver.VM.State() {
-	case vm.OFF:
+	switch h.Driver.VMState() {
+	case driver.OFF:
 
-	case vm.STOPPED:
+	case driver.STOPPED:
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
 			Body:  dap.StoppedEventBody{Reason: "step", ThreadId: 1, AllThreadsStopped: true},
 		}
-	case vm.DONE:
+	case driver.DONE:
 		e = &dap.TerminatedEvent{
 			Event: *newEvent("terminated"),
 		}
@@ -322,7 +321,7 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	stackFrames := make([]dap.StackFrame, len(driverFrames))
 	// reverse the order: deepest stack frame must be first in array
 	for i := len(stackFrames) - 1; i >= 0; i-- {
-		stackFrames[i] = DAPStackFrame(driverFrames[len(stackFrames)-1-i])
+		stackFrames[i] = DriverFrameToStackFrame(driverFrames[len(stackFrames)-1-i])
 	}
 	response.Body = dap.StackTraceResponseBody{
 		StackFrames: stackFrames,
@@ -331,29 +330,35 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	h.session.send(response)
 }
 
-func DAPStackFrame(debugFrame driver.DebugFrame) dap.StackFrame {
-	return dap.StackFrame{
-		Id:     debugFrame.Id,
-		Name:   debugFrame.Name,
-		Source: &dap.Source{Path: debugFrame.Source},
-		Line:   debugFrame.Line,
-		Column: debugFrame.Line,
-	}
-}
-
 func (h *MonkeyHandler) OnScopesRequest(request *dap.ScopesRequest) {
+
+	frameId := request.Arguments.FrameId
+
 	response := &dap.ScopesResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
+	scopes := []dap.Scope{}
+	if frameId > 0 {
+		localScope := dap.Scope{Name: "Local", VariablesReference: frameId + 1, Expensive: false}
+		scopes = append(scopes, localScope)
+	}
+	//always attach global scope
+	scopes = append(scopes, dap.Scope{Name: "Global", VariablesReference: 1, Expensive: false})
+
 	response.Body = dap.ScopesResponseBody{
-		Scopes: []dap.Scope{
-			{Name: "Local", VariablesReference: 1000, Expensive: false},
-			{Name: "Global", VariablesReference: 1001, Expensive: true},
-		},
+		Scopes: scopes,
 	}
 	h.session.send(response)
 }
 
 func (h *MonkeyHandler) OnVariablesRequest(request *dap.VariablesRequest) {
+	// subtract 1 from ref and use the value as an index into our driver frames
+	varRef := request.Arguments.VariablesReference - 1
+	driverVars := h.Driver.Frames[varRef].Vars
+	log.Printf("driverVars: %v", driverVars)
+	vars := make([]dap.Variable, len(driverVars))
+	for i, dv := range driverVars {
+		vars[i] = DriverVarToDAPVar(dv)
+	}
 	select {
 	case <-h.session.stopDebug:
 		return
@@ -363,7 +368,7 @@ func (h *MonkeyHandler) OnVariablesRequest(request *dap.VariablesRequest) {
 		response := &dap.VariablesResponse{}
 		response.Response = *newResponse(request.Seq, request.Command)
 		response.Body = dap.VariablesResponseBody{
-			Variables: []dap.Variable{{Name: "i", Value: "18434528", EvaluateName: "i", VariablesReference: 0}},
+			Variables: vars,
 		}
 		h.session.send(response)
 	}
@@ -439,4 +444,23 @@ func (h *MonkeyHandler) OnCancelRequest(request *dap.CancelRequest) {
 
 func (h *MonkeyHandler) OnBreakpointLocationsRequest(request *dap.BreakpointLocationsRequest) {
 	h.session.send(newErrorResponse(request.Seq, request.Command, "BreakpointLocationsRequest is not yet supported"))
+}
+
+func DriverVarToDAPVar(driverVar driver.DriverVar) dap.Variable {
+	return dap.Variable{
+		Name:               driverVar.Name,
+		Value:              driverVar.Value,
+		VariablesReference: driverVar.VariablesReference,
+	}
+}
+
+func DriverFrameToStackFrame(driverFrame driver.DebugFrame) dap.StackFrame {
+	return dap.StackFrame{
+		Id:     driverFrame.Id,
+		Name:   driverFrame.Name,
+		Source: &dap.Source{Path: driverFrame.Source},
+		Line:   driverFrame.Line,
+		Column: driverFrame.Column,
+	}
+
 }

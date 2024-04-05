@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"monkey/compiler"
 	"monkey/lexer"
+	"monkey/object"
 	"monkey/parser"
 	"monkey/vm"
 	"strings"
@@ -21,22 +22,23 @@ type Driver struct {
 	Source              string
 	SourceCode          string
 	stoppedOnBreakpoint bool
+	Frames              []DebugFrame
 }
 
-type vmState int
+type VMState int
 
 const (
-	OFF vmState = iota
+	OFF VMState = iota
 	STOPPED
 	DONE
 )
 
-func (d Driver) VMState() vmState {
+func (d Driver) VMState() VMState {
 
-	return vmState(d.VM.State())
+	return VMState(d.VM.State())
 }
 
-func (st vmState) String() string {
+func (st VMState) String() string {
 	var s string
 	switch st {
 	case OFF:
@@ -259,6 +261,7 @@ type DebugFrame struct {
 	Source string
 	Line   int
 	Column int
+	Vars   []DriverVar
 }
 
 func (d Driver) NewDebugFrame(id int, vmFrame *vm.Frame) DebugFrame {
@@ -268,6 +271,11 @@ func (d Driver) NewDebugFrame(id int, vmFrame *vm.Frame) DebugFrame {
 	loc := d.VM.LocationMap[key]
 	line := loc.Range.Start.Line
 	col := loc.Range.Start.Col
+	objects := d.VM.ActiveObjects(*vmFrame)
+	vars := make([]DriverVar, len(objects))
+	for i, o := range objects {
+		vars[i] = ObjectToDriverVar(*o)
+	}
 
 	return DebugFrame{
 		Id:     id,
@@ -275,10 +283,11 @@ func (d Driver) NewDebugFrame(id int, vmFrame *vm.Frame) DebugFrame {
 		Source: source,
 		Line:   line,
 		Column: col,
+		Vars:   vars,
 	}
 }
 
-func (d Driver) CollectFrames() []DebugFrame {
+func (d *Driver) CollectFrames() []DebugFrame {
 	numFrames := d.VM.FramesIndex()
 	frames := make([]DebugFrame, numFrames)
 	for i := 0; i < numFrames; i++ {
@@ -288,7 +297,29 @@ func (d Driver) CollectFrames() []DebugFrame {
 			debugFrame.Name = "main"
 		}
 		debugFrame.Source = d.Source
+		frameObjects := d.VM.ActiveObjects(*vmFrame)
+		frameVars := make([]DriverVar, len(frameObjects))
+		for j, obj := range frameObjects {
+			frameVars[j] = ObjectToDriverVar(*obj)
+		}
+		debugFrame.Vars = frameVars
 		frames[i] = debugFrame
+
 	}
+	d.Frames = frames
 	return frames
+}
+
+type DriverVar struct {
+	Name               string
+	Value              string
+	VariablesReference int
+}
+
+func ObjectToDriverVar(obj object.Object) DriverVar {
+	return DriverVar{
+		Name:               "var",
+		Value:              obj.Inspect(),
+		VariablesReference: 0,
+	}
 }
