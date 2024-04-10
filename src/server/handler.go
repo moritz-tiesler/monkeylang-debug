@@ -76,9 +76,42 @@ func (h *MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 	// This is where a real debug adaptor would check the soundness of the
 	// arguments (e.g. program from launch.json) and then use them to launch the
 	// debugger and attach to the program.
+
+	code, err := os.ReadFile(h.session.source.Path)
+	if err != nil {
+		panic(fmt.Sprintf("could not read source file=%s", h.session.source.Path))
+	}
+
+	err = h.Driver.StartVM(string(code))
+	if err != nil {
+		log.Fatalf("could not start vm: %s", err)
+	}
+	log.Printf("started vm with code=%s\n", string(code))
+
 	response := &dap.LaunchResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
+
+	var e dap.Message
+	err, _ = h.Driver.RunWithBreakpoints(h.Driver.Breakpoints)
+	if err != nil {
+		log.Printf("error runnig VM: %s", err)
+	}
+	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
+	switch h.Driver.VMState() {
+	case driver.OFF:
+		return
+	case driver.STOPPED:
+		e = &dap.StoppedEvent{
+			Event: *newEvent("stopped"),
+			Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
+		}
+	case driver.DONE:
+		e = &dap.TerminatedEvent{
+			Event: *newEvent("terminated"),
+		}
+	}
+	h.session.send(e)
 }
 
 func (h *MonkeyHandler) OnAttachRequest(request *dap.AttachRequest) {
@@ -110,16 +143,6 @@ func (h *MonkeyHandler) OnSetBreakpointsRequest(request *dap.SetBreakpointsReque
 	source := request.Arguments.Source
 	h.Driver.Source = source.Path
 	h.session.source = source
-	code, err := os.ReadFile(source.Path)
-	if err != nil {
-		panic(fmt.Sprintf("could not read source file=%s", source.Path))
-	}
-
-	err = h.Driver.StartVM(string(code))
-	if err != nil {
-		log.Fatalf("could not start vm")
-	}
-	log.Printf("started vm with code=%s\n", string(code))
 
 	response := &dap.SetBreakpointsResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
