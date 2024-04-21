@@ -13,7 +13,6 @@ import (
 type breakpoint struct {
 	line int
 	col  int
-	doc  string
 }
 
 type Driver struct {
@@ -188,13 +187,9 @@ func (d *Driver) StepInto() (error, bool) {
 }
 
 func (d *Driver) StepOut() (error, bool) {
-	//staringLoc := d.VM.SourceLocation()
-	//startingLine := staringLoc.Range.Start.Line
 	startingDepth := d.VM.CallDepth
 
 	runCondition := func(vm *vm.VM) (bool, exception.Exception) {
-		//cycleLocation := vm.SourceLocation()
-		//cycleLine := cycleLocation.Range.Start.Line
 		cycleDepth := d.VM.CallDepth
 
 		if cycleDepth < startingDepth {

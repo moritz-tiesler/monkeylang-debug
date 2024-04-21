@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	"monkeylang-debug/driver"
 
@@ -72,10 +73,6 @@ func (h *MonkeyHandler) OnInitializeRequest(request *dap.InitializeRequest) {
 }
 
 func (h *MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
-	// This is where a real debug adaptor would check the soundness of the
-	// arguments (e.g. program from launch.json) and then use them to launch the
-	// debugger and attach to the program.
-
 	code, err := os.ReadFile(h.session.source.Path)
 	if err != nil {
 		panic(fmt.Sprintf("could not read source file=%s", h.session.source.Path))
@@ -83,37 +80,46 @@ func (h *MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 
 	err = h.Driver.StartVM(string(code))
 	if err != nil {
+		response := &dap.LaunchResponse{}
+		response.Response = *newResponse(request.Seq, request.Command)
+		h.session.send(response)
 		log.Printf("could not start vm: %s", err)
 
-		s := h.Driver.VMState()
-		log.Printf("State: %d", s)
-		switch s {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			s := h.Driver.VMState()
+			log.Printf("State: %d", s)
+			switch s {
+			case driver.OFF:
+			default:
+				e := h.ProduceStopEvent(h.Driver.VMState())
+				h.session.send(e)
+			}
+		}()
+		return
+	}
+	log.Printf("started vm with code=%s\n", string(code))
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		err, _ = h.Driver.RunWithBreakpoints(h.Driver.Breakpoints)
+		if err != nil {
+			log.Printf("error runnig VM: %s", err)
+		}
+		log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
+
+		switch h.Driver.VMState() {
 		case driver.OFF:
+			return
 		default:
 			e := h.ProduceStopEvent(h.Driver.VMState())
 			h.session.send(e)
-			return
 		}
-	}
-	log.Printf("started vm with code=%s\n", string(code))
+	}()
 
 	response := &dap.LaunchResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
-
-	err, _ = h.Driver.RunWithBreakpoints(h.Driver.Breakpoints)
-	if err != nil {
-		log.Printf("error runnig VM: %s", err)
-	}
-	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
-
-	switch h.Driver.VMState() {
-	case driver.OFF:
-		return
-	default:
-		e := h.ProduceStopEvent(h.Driver.VMState())
-		h.session.send(e)
-	}
 }
 
 func (h *MonkeyHandler) OnAttachRequest(request *dap.AttachRequest) {
@@ -173,12 +179,6 @@ func (h *MonkeyHandler) OnConfigurationDoneRequest(request *dap.ConfigurationDon
 	response := &dap.ConfigurationDoneResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
-
-	//se := &dap.StoppedEvent{
-	//Event: *newEvent("stopped"),
-	//Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
-	//}
-	//h.session.send(se)
 }
 
 func (h *MonkeyHandler) OnContinueRequest(request *dap.ContinueRequest) {
@@ -315,6 +315,7 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	response.Response = *newResponse(request.Seq, request.Command)
 
 	if h.Driver.HasErrors() {
+		// TODO: return proper stacktraces when error is runtime error
 		log.Println("Sending error stacktrace")
 		e := h.Driver.Errors[0]
 		stackFrames := make([]dap.StackFrame, 1)
@@ -338,7 +339,7 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	stackFrames := make([]dap.StackFrame, len(driverFrames))
 	// reverse the order: deepest stack frame must be first in array
 	for i := len(stackFrames) - 1; i >= 0; i-- {
-		stackFrames[i] = DriverFrameToStackFrame(driverFrames[len(stackFrames)-1-i])
+		stackFrames[i] = h.DriverFrameToStackFrame(driverFrames[len(stackFrames)-1-i])
 	}
 	response.Body = dap.StackTraceResponseBody{
 		StackFrames: stackFrames,
@@ -395,7 +396,7 @@ func (h *MonkeyHandler) OnVariablesRequest(request *dap.VariablesRequest) {
 	select {
 	case <-h.session.stopDebug:
 		return
-	default:
+	case <-time.After(100 * time.Millisecond):
 		response := &dap.VariablesResponse{}
 		response.Response = *newResponse(request.Seq, request.Command)
 		response.Body = dap.VariablesResponseBody{
@@ -494,11 +495,11 @@ func DriverVarToDAPVar(driverVar driver.DriverVar) dap.Variable {
 	}
 }
 
-func DriverFrameToStackFrame(driverFrame driver.DebugFrame) dap.StackFrame {
+func (h *MonkeyHandler) DriverFrameToStackFrame(driverFrame driver.DebugFrame) dap.StackFrame {
 	return dap.StackFrame{
 		Id:     driverFrame.Id,
 		Name:   driverFrame.Name,
-		Source: &dap.Source{Path: driverFrame.Source},
+		Source: &h.session.source,
 		Line:   driverFrame.Line,
 		Column: driverFrame.Column,
 	}
