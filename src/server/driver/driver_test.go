@@ -1,6 +1,9 @@
 package driver
 
 import (
+	"monkey/compiler"
+	"monkey/parser"
+	"monkey/vm"
 	"testing"
 )
 
@@ -492,4 +495,94 @@ let m = func(2);
 		}
 	}
 
+}
+
+type ErrorTestCase struct {
+	sourceCode string
+	breakPoint breakpoint
+	expected   error
+}
+
+func TestErrorReporting(t *testing.T) {
+	tests := []ErrorTestCase{
+		{
+			sourceCode: `
+let x = a;
+let y = 2;
+			`,
+			breakPoint: breakpoint{
+				line: 3,
+				col:  1,
+			},
+			expected: compiler.CompilerError{},
+		},
+		{
+			sourceCode: `
+let x = 4;
+let y = x();
+let d = 3;
+			`,
+			breakPoint: breakpoint{
+				line: 4,
+				col:  1,
+			},
+			expected: vm.RunTimeError{},
+		},
+		{
+			sourceCode: `
+let x = fn(a, b) {a+b};
+let y = x(3);
+let d = 3;
+			`,
+			breakPoint: breakpoint{
+				line: 4,
+				col:  1,
+			},
+			expected: vm.RunTimeError{},
+		},
+		{
+			sourceCode: `
+let x = fn(a; b) {a + b};
+let y = x(3, 2);
+let d = 3;
+			`,
+			breakPoint: breakpoint{
+				line: 4,
+				col:  1,
+			},
+			expected: parser.ParserError{},
+		},
+	}
+
+	for _, tt := range tests {
+		driver := New()
+		var err error
+		err = driver.StartVM(tt.sourceCode)
+		if err == nil {
+			err, _ = driver.RunUntilBreakPoint(tt.breakPoint.line)
+		}
+		// Test is expected to have an error here
+		if err == nil {
+			t.Errorf("expected error state for code=%s, got=%s", tt.sourceCode, driver.VMState())
+		}
+
+		switch tt.expected.(type) {
+		case parser.ParserError:
+			actual, ok := err.(parser.ParserError)
+			if !ok {
+				t.Errorf("expected parser error, got=%T", actual)
+			}
+		case compiler.CompilerError:
+			actual, ok := err.(compiler.CompilerError)
+			if !ok {
+				t.Errorf("expected compiler error, got=%T", actual)
+			}
+		case vm.RunTimeError:
+			actual, ok := err.(vm.RunTimeError)
+			if !ok {
+				t.Errorf("expected runtime error, got=%T", actual)
+			}
+		}
+
+	}
 }

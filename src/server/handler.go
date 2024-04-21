@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"sync"
-	"time"
 
 	"monkeylang-debug/driver"
 
@@ -50,7 +49,7 @@ func (h *MonkeyHandler) OnInitializeRequest(request *dap.InitializeRequest) {
 	response.Body.SupportsRestartRequest = false
 	response.Body.SupportsExceptionOptions = false
 	response.Body.SupportsValueFormattingOptions = false
-	response.Body.SupportsExceptionInfoRequest = false
+	response.Body.SupportsExceptionInfoRequest = true
 	response.Body.SupportTerminateDebuggee = false
 	response.Body.SupportsDelayedStackTraceLoading = false
 	response.Body.SupportsLoadedSourcesRequest = false
@@ -84,7 +83,17 @@ func (h *MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 
 	err = h.Driver.StartVM(string(code))
 	if err != nil {
-		log.Fatalf("could not start vm: %s", err)
+		log.Printf("could not start vm: %s", err)
+
+		s := h.Driver.VMState()
+		log.Printf("State: %d", s)
+		switch s {
+		case driver.OFF:
+		default:
+			e := h.ProduceStopEvent(h.Driver.VMState())
+			h.session.send(e)
+			return
+		}
 	}
 	log.Printf("started vm with code=%s\n", string(code))
 
@@ -92,26 +101,19 @@ func (h *MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
 
-	var e dap.Message
 	err, _ = h.Driver.RunWithBreakpoints(h.Driver.Breakpoints)
 	if err != nil {
 		log.Printf("error runnig VM: %s", err)
 	}
 	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
+
 	switch h.Driver.VMState() {
 	case driver.OFF:
 		return
-	case driver.STOPPED:
-		e = &dap.StoppedEvent{
-			Event: *newEvent("stopped"),
-			Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
-		}
-	case driver.DONE:
-		e = &dap.TerminatedEvent{
-			Event: *newEvent("terminated"),
-		}
+	default:
+		e := h.ProduceStopEvent(h.Driver.VMState())
+		h.session.send(e)
 	}
-	h.session.send(e)
 }
 
 func (h *MonkeyHandler) OnAttachRequest(request *dap.AttachRequest) {
@@ -121,6 +123,7 @@ func (h *MonkeyHandler) OnAttachRequest(request *dap.AttachRequest) {
 func (h *MonkeyHandler) OnDisconnectRequest(request *dap.DisconnectRequest) {
 	response := &dap.DisconnectResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
+	h.session.stopDebug <- struct{}{}
 	h.session.send(response)
 }
 
@@ -165,29 +168,26 @@ func (h *MonkeyHandler) OnSetExceptionBreakpointsRequest(request *dap.SetExcepti
 }
 
 func (h *MonkeyHandler) OnConfigurationDoneRequest(request *dap.ConfigurationDoneRequest) {
-	// This would be the place to check if the session was configured to
-	// stop on entry and if that is the case, to issue a
-	// stopped-on-breakpoint event. This being a mock implementation,
-	// we "let" the program continue after sending a successful response.
 	e := &dap.ThreadEvent{Event: *newEvent("thread"), Body: dap.ThreadEventBody{Reason: "started", ThreadId: 1}}
 	h.session.send(e)
 	response := &dap.ConfigurationDoneResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
 
-	se := &dap.StoppedEvent{
-		Event: *newEvent("stopped"),
-		Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
-	}
-	h.session.send(se)
+	//se := &dap.StoppedEvent{
+	//Event: *newEvent("stopped"),
+	//Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
+	//}
+	//h.session.send(se)
 }
 
 func (h *MonkeyHandler) OnContinueRequest(request *dap.ContinueRequest) {
 	response := &dap.ContinueResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 	h.session.send(response)
-	var e dap.Message
+
 	h.bpSetMux.Lock()
+
 	bps := h.Driver.Breakpoints
 	log.Printf("Breakpoints: %v", bps)
 	err, _ := h.Driver.RunWithBreakpoints(bps)
@@ -195,22 +195,19 @@ func (h *MonkeyHandler) OnContinueRequest(request *dap.ContinueRequest) {
 		log.Printf("error runnig VM: %s", err)
 	}
 	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
-	switch h.Driver.VMState() {
+
+	s := h.Driver.VMState()
+	switch s {
 	case driver.OFF:
+		log.Printf("%d\n", s)
 		return
-	case driver.STOPPED:
-		e = &dap.StoppedEvent{
-			Event: *newEvent("stopped"),
-			Body:  dap.StoppedEventBody{Reason: "breakpoint", ThreadId: 1, AllThreadsStopped: true},
-		}
-	case driver.DONE:
-		e = &dap.TerminatedEvent{
-			Event: *newEvent("terminated"),
-		}
+	default:
+		log.Printf("%d\n", s)
+		e := h.ProduceStopEvent(s)
+		h.session.send(e)
 	}
 
 	h.bpSetMux.Unlock()
-	h.session.send(e)
 }
 
 func (h *MonkeyHandler) OnNextRequest(request *dap.NextRequest) {
@@ -230,21 +227,13 @@ func (h *MonkeyHandler) OnNextRequest(request *dap.NextRequest) {
 		log.Printf("error handling NextRequest: %s", err)
 	}
 
-	var e dap.Message
 	switch h.Driver.VMState() {
 	case driver.OFF:
-
-	case driver.STOPPED:
-		e = &dap.StoppedEvent{
-			Event: *newEvent("stopped"),
-			Body:  dap.StoppedEventBody{Reason: "step", ThreadId: 1, AllThreadsStopped: true},
-		}
-	case driver.DONE:
-		e = &dap.TerminatedEvent{
-			Event: *newEvent("terminated"),
-		}
+		return
+	default:
+		e := h.ProduceStopEvent(h.Driver.VMState())
+		h.session.send(e)
 	}
-	h.session.send(e)
 
 }
 
@@ -265,21 +254,13 @@ func (h *MonkeyHandler) OnStepInRequest(request *dap.StepInRequest) {
 		log.Printf("error handling NextRequest: %s", err)
 	}
 
-	var e dap.Message
 	switch h.Driver.VMState() {
 	case driver.OFF:
-
-	case driver.STOPPED:
-		e = &dap.StoppedEvent{
-			Event: *newEvent("stopped"),
-			Body:  dap.StoppedEventBody{Reason: "step", ThreadId: 1, AllThreadsStopped: true},
-		}
-	case driver.DONE:
-		e = &dap.TerminatedEvent{
-			Event: *newEvent("terminated"),
-		}
+		return
+	default:
+		e := h.ProduceStopEvent(h.Driver.VMState())
+		h.session.send(e)
 	}
-	h.session.send(e)
 
 }
 
@@ -300,21 +281,13 @@ func (h *MonkeyHandler) OnStepOutRequest(request *dap.StepOutRequest) {
 		log.Printf("error handling NextRequest: %s", err)
 	}
 
-	var e dap.Message
 	switch h.Driver.VMState() {
 	case driver.OFF:
-
-	case driver.STOPPED:
-		e = &dap.StoppedEvent{
-			Event: *newEvent("stopped"),
-			Body:  dap.StoppedEventBody{Reason: "step", ThreadId: 1, AllThreadsStopped: true},
-		}
-	case driver.DONE:
-		e = &dap.TerminatedEvent{
-			Event: *newEvent("terminated"),
-		}
+		return
+	default:
+		e := h.ProduceStopEvent(h.Driver.VMState())
+		h.session.send(e)
 	}
-	h.session.send(e)
 }
 
 func (h *MonkeyHandler) OnStepBackRequest(request *dap.StepBackRequest) {
@@ -340,6 +313,27 @@ func (h *MonkeyHandler) OnPauseRequest(request *dap.PauseRequest) {
 func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
+
+	if h.Driver.HasErrors() {
+		log.Println("Sending error stacktrace")
+		e := h.Driver.Errors[0]
+		stackFrames := make([]dap.StackFrame, 1)
+		stackFrames[0] = dap.StackFrame{
+			Id:     0,
+			Name:   "Error",
+			Source: &h.session.source,
+			Line:   e.Line(),
+			Column: e.Col(),
+		}
+		response.Body = dap.StackTraceResponseBody{
+			StackFrames: stackFrames,
+			TotalFrames: 1,
+		}
+		h.session.send(response)
+		return
+
+	}
+
 	driverFrames := h.Driver.CollectFrames()
 	stackFrames := make([]dap.StackFrame, len(driverFrames))
 	// reverse the order: deepest stack frame must be first in array
@@ -376,6 +370,22 @@ func (h *MonkeyHandler) OnScopesRequest(request *dap.ScopesRequest) {
 func (h *MonkeyHandler) OnVariablesRequest(request *dap.VariablesRequest) {
 	// subtract 1 from ref and use the value as an index into our driver frames
 	varRef := request.Arguments.VariablesReference - 1
+
+	if h.Driver.HasErrors() {
+		response := &dap.VariablesResponse{}
+		response.Response = *newResponse(request.Seq, request.Command)
+
+		errorVar := dap.Variable{
+			Name:  "Error",
+			Value: h.Driver.Errors[0].Error(),
+			Type:  "ERROR",
+		}
+		response.Body = dap.VariablesResponseBody{
+			Variables: []dap.Variable{errorVar},
+		}
+		h.session.send(response)
+		return
+	}
 	driverVars := h.Driver.Frames[varRef].Vars
 	log.Printf("driverVars: %v", driverVars)
 	vars := make([]dap.Variable, len(driverVars))
@@ -385,9 +395,7 @@ func (h *MonkeyHandler) OnVariablesRequest(request *dap.VariablesRequest) {
 	select {
 	case <-h.session.stopDebug:
 		return
-	// simulate long-running processing to make this handler
-	// respond to this request after the next request is received
-	case <-time.After(100 * time.Millisecond):
+	default:
 		response := &dap.VariablesResponse{}
 		response.Response = *newResponse(request.Seq, request.Command)
 		response.Body = dap.VariablesResponseBody{
@@ -438,7 +446,15 @@ func (h *MonkeyHandler) OnCompletionsRequest(request *dap.CompletionsRequest) {
 }
 
 func (h *MonkeyHandler) OnExceptionInfoRequest(request *dap.ExceptionInfoRequest) {
-	h.session.send(newErrorResponse(request.Seq, request.Command, "ExceptionRequest is not yet supported"))
+	// this gets invoked when you click the stack frame
+	response := &dap.ExceptionInfoResponse{}
+	body := dap.ExceptionInfoResponseBody{}
+	body.Description = h.Driver.Errors[0].Error()
+	body.Details = &dap.ExceptionDetails{
+		Message: h.Driver.Errors[0].Error(),
+	}
+	response.Body = body
+	h.session.send(response)
 }
 
 func (h *MonkeyHandler) OnLoadedSourcesRequest(request *dap.LoadedSourcesRequest) {
@@ -487,4 +503,35 @@ func DriverFrameToStackFrame(driverFrame driver.DebugFrame) dap.StackFrame {
 		Column: driverFrame.Column,
 	}
 
+}
+
+func (h *MonkeyHandler) ProduceStopEvent(state driver.VMState) dap.Message {
+	// switch on the State here
+	var e dap.Message
+
+	switch h.Driver.VMState() {
+	case driver.STOPPED:
+		e = &dap.StoppedEvent{
+			Event: *newEvent("stopped"),
+			Body: dap.StoppedEventBody{
+				Reason:   "breakpoint",
+				ThreadId: 1, AllThreadsStopped: true,
+			},
+		}
+	case driver.ERROR:
+		e = &dap.StoppedEvent{
+			Event: *newEvent("stopped"),
+			Body: dap.StoppedEventBody{
+				Reason:            "exception",
+				ThreadId:          1,
+				AllThreadsStopped: true,
+				Description:       "An error occured",
+			},
+		}
+	case driver.DONE:
+		e = &dap.TerminatedEvent{
+			Event: *newEvent("terminated"),
+		}
+	}
+	return e
 }

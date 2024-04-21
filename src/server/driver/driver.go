@@ -1,8 +1,8 @@
 package driver
 
 import (
-	"fmt"
 	"monkey/compiler"
+	"monkey/exception"
 	"monkey/lexer"
 	"monkey/object"
 	"monkey/parser"
@@ -23,6 +23,7 @@ type Driver struct {
 	SourceCode          string
 	stoppedOnBreakpoint bool
 	Frames              []DebugFrame
+	Errors              []exception.Exception
 }
 
 type VMState int
@@ -31,10 +32,14 @@ const (
 	OFF VMState = iota
 	STOPPED
 	DONE
+	ERROR
 )
 
 func (d Driver) VMState() VMState {
 
+	if d.HasErrors() {
+		return ERROR
+	}
 	return VMState(d.VM.State())
 }
 
@@ -50,6 +55,10 @@ func (st VMState) String() string {
 	}
 
 	return s
+}
+
+func (d Driver) HasErrors() bool {
+	return len(d.Errors) > 0
 }
 
 func New() *Driver {
@@ -99,10 +108,16 @@ func (d *Driver) StartVM(sourceCode string) error {
 	lexer := lexer.New(sourceCode)
 	parser := parser.New(lexer)
 	program := parser.ParseProgram()
+	parserErrors := parser.Errors()
+	if len(parserErrors) > 0 {
+		d.Errors = append(d.Errors, parserErrors...)
+		return d.Errors[0]
+	}
 	compiler := compiler.New()
 	err := compiler.Compile(program)
 	if err != nil {
-		return fmt.Errorf("compilation error")
+		d.Errors = append(d.Errors, err)
+		return err
 	}
 	vm := vm.NewFromMain(compiler.MainFn(), compiler.Bytecode(), compiler.LocationMap, compiler.NameStore)
 	d.VM = vm
@@ -114,7 +129,7 @@ func (d *Driver) StepOver() (error, bool) {
 	startingLine := staringLoc.Range.Start.Line
 	startingDepth := d.VM.CallDepth
 
-	runCondition := func(vm *vm.VM) (bool, error) {
+	runCondition := func(vm *vm.VM) (bool, exception.Exception) {
 		cycleLocation := vm.SourceLocation()
 		cycleLine := cycleLocation.Range.Start.Line
 		cycleDepth := d.VM.CallDepth
@@ -130,6 +145,7 @@ func (d *Driver) StepOver() (error, bool) {
 
 	vm, err, conditonMet := d.VM.RunWithCondition(runCondition)
 	if err != nil {
+		d.Errors = append(d.Errors, err)
 		return err, false
 	}
 	d.VM = vm
@@ -142,7 +158,7 @@ func (d *Driver) StepInto() (error, bool) {
 	startingLine := staringLoc.Range.Start.Line
 	startingDepth := d.VM.CallDepth
 
-	runCondition := func(vm *vm.VM) (bool, error) {
+	runCondition := func(vm *vm.VM) (bool, exception.Exception) {
 		cycleLocation := vm.SourceLocation()
 		cycleLine := cycleLocation.Range.Start.Line
 		cycleDepth := d.VM.CallDepth
@@ -163,6 +179,7 @@ func (d *Driver) StepInto() (error, bool) {
 
 	vm, err, conditonMet := d.VM.RunWithCondition(runCondition)
 	if err != nil {
+		d.Errors = append(d.Errors, err)
 		return err, false
 	}
 	d.VM = vm
@@ -175,7 +192,7 @@ func (d *Driver) StepOut() (error, bool) {
 	//startingLine := staringLoc.Range.Start.Line
 	startingDepth := d.VM.CallDepth
 
-	runCondition := func(vm *vm.VM) (bool, error) {
+	runCondition := func(vm *vm.VM) (bool, exception.Exception) {
 		//cycleLocation := vm.SourceLocation()
 		//cycleLine := cycleLocation.Range.Start.Line
 		cycleDepth := d.VM.CallDepth
@@ -192,6 +209,7 @@ func (d *Driver) StepOut() (error, bool) {
 
 	vm, err, conditonMet := d.VM.RunWithCondition(runCondition)
 	if err != nil {
+		d.Errors = append(d.Errors, err)
 		return err, false
 	}
 	d.VM = vm
@@ -204,7 +222,7 @@ func (d *Driver) RunWithBreakpoints(bps []breakpoint) (error, bool) {
 		d.StepOver()
 	}
 
-	runCondition := func(vm *vm.VM) (bool, error) {
+	runCondition := func(vm *vm.VM) (bool, exception.Exception) {
 		executionLoc := vm.SourceLocation()
 		executionLine := executionLoc.Range.Start.Line
 		for _, bp := range bps {
@@ -221,6 +239,7 @@ func (d *Driver) RunWithBreakpoints(bps []breakpoint) (error, bool) {
 
 	vm, err, breakPointHit := d.VM.RunWithCondition(runCondition)
 	if err != nil {
+		d.Errors = append(d.Errors, err)
 		return err, false
 	}
 	d.VM = vm
@@ -229,7 +248,7 @@ func (d *Driver) RunWithBreakpoints(bps []breakpoint) (error, bool) {
 }
 
 func (d *Driver) RunUntilBreakPoint(line int) (error, bool) {
-	runCondition := func(vm *vm.VM) (bool, error) {
+	runCondition := func(vm *vm.VM) (bool, exception.Exception) {
 		executionLoc := vm.SourceLocation()
 		executionLine := executionLoc.Range.Start.Line
 		if line == executionLine {
@@ -242,6 +261,7 @@ func (d *Driver) RunUntilBreakPoint(line int) (error, bool) {
 
 	vm, err, breakPointHit := d.VM.RunWithCondition(runCondition)
 	if err != nil {
+		d.Errors = append(d.Errors, err)
 		return err, false
 	}
 
