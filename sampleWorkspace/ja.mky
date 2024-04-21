@@ -1,9 +1,43 @@
-let square = fn(x) {
-    return x * x
-}
-let squareAndDouble = fn(a) {
-    let b = square(a) * 2
-    b
-}
-let res = squareAndDouble(2)
-let res = square(2)
+let null = [1, 2][2];
+
+let Option = fn(x) {
+    if (x == null) {
+        return fn() {};
+    } else {
+        return fn() {x};
+    }
+};
+
+let unwrap = fn(opt) {
+    return opt()
+};
+
+let optionMap = fn(opt, func) {
+    let val = opt.unwrap()
+    if (val) {
+        return Option(func(val))
+    } else {
+        return null
+    }
+};
+
+let optionBind = fn(option, func) {
+    let val = option()
+    if (val) {
+        return func(val)
+    } else {
+        return null
+    }
+};
+
+
+let get = fn(arr, i) {
+    Option(arr[i])
+};
+
+let double = fn(x) {x + x};
+
+let optElem = get([1, 2],1);
+let optMapped = optElem.optionMap(double);
+puts(optMapped.unwrap())
+

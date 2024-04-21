@@ -76,12 +76,12 @@
   "contributes": {
     "languages": [
       {
-        "id": "monkeylang",
-        "aliases": [
-          "monkey"
-        ],
+        "id": "Monkey",
         "extensions": [
           "mky"
+        ],
+        "aliases": [
+          "Monkeylang"
         ]
       }
     ],
@@ -140,7 +140,7 @@
         "language": "markdown"
       }, 
       {
-        "language": "monkeylang"
+        "language": "Monkey"
       }
     ],
     "debuggers": [
@@ -148,7 +148,7 @@
         "type": "mock",
         "languages": [
          "markdown", 
-         "monkeylang"
+         "Monkey"
         ],
         "label": "Mock Debug",
         "program": "./src/server/monkeylang-debug",
