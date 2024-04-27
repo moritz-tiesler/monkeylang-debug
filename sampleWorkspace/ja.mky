@@ -21,6 +21,20 @@ let optionMap = fn(opt, func) {
     }
 };
 
+let arr_any = fn(arr, pred) {
+    let iter = fn(arr) {
+        if (arr.len() == 0) {
+            return false;
+        }
+        if (pred(arr.first())) {
+            return true;
+        } else {
+            return iter(arr.rest());
+        } 
+    };
+    iter(arr);
+};
+
 let optionBind = fn(option, func) {
     let val = option()
     if (val) {
@@ -31,13 +45,18 @@ let optionBind = fn(option, func) {
 };
 
 
-let get = fn(arr, i) {
-    Option(arr[i])
+let gett = fn(arr, i) {
+    return Option(arr[i]);
 };
 
-let double = fn(x) {x + x};
+let double = fn(x) {
+    x + x
+};
 
-let optElem = get([1, 2],1);
+let z = double(2);
+ 
+let optElem = gett([1, 2], 1);
 let optMapped = optElem.optionMap(double);
 puts(optMapped.unwrap())
+puts([1, 2].arr_any {x -> x > 1})
 

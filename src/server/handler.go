@@ -335,6 +335,7 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 
 	}
 
+	log.Println("attempting to collect frames")
 	driverFrames := h.Driver.CollectFrames()
 	stackFrames := make([]dap.StackFrame, len(driverFrames))
 	// reverse the order: deepest stack frame must be first in array

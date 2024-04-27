@@ -264,6 +264,7 @@ func (d *Driver) RunUntilBreakPoint(line int) (error, bool) {
 	return nil, breakPointHit
 }
 
+// TODO: puts() (and all built ins) call probably does not return a proper source location
 func (d Driver) VMLocation() int {
 
 	loc := d.VM.SourceLocation()

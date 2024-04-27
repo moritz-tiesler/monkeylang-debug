@@ -25,11 +25,12 @@ let squareAndDouble = fn(a) {
 	return b
 }
 let z = square(2)
+puts(z)
 let y = squareAndDouble(2)`,
 
 			breakPoints: []breakpoint{
 				{line: 2, col: 0},
-				{line: 9, col: 0},
+				{line: 10, col: 0},
 			},
 		},
 		{
@@ -433,6 +434,35 @@ func TestStackFrames(t *testing.T) {
 	tests := []StackFrameTestCase{
 		{
 			sourceCode: `
+let arr_all = fn(array, pred) {
+    let iter = fn(arr) {
+        if (arr.len() == 0) {
+            return true; 
+        }
+        if (!pred(arr.first())) {
+            return false;
+        } else {
+            return iter(arr.rest());
+        }
+    };
+    iter(array);
+};
+let res = [2, 3, 1].arr_all(fn(x) {x < 4});
+let d = 4;
+`,
+			breakPoint: breakpoint{
+				line: 16, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 16,
+				},
+			},
+		},
+		{
+			sourceCode: `
 let x = 2;
 x;
 			`,
@@ -479,13 +509,15 @@ let m = func(2);
 		if err != nil {
 			t.Errorf("error starting VM: %s", err)
 		}
-		driver.RunUntilBreakPoint(tt.breakPoint.line)
-		t.Logf(driver.State())
-		t.Logf("%d", driver.VM.State())
-
+		_, hit := driver.RunUntilBreakPoint(tt.breakPoint.line)
+		if !hit {
+			t.Errorf("error in stackframe test %d", i+1)
+			t.Errorf("did not hit expected breakpoint: expected=%v, got=%v", tt.breakPoint, driver.VM.SourceLocation())
+		}
+		actualFrames := driver.CollectFrames()
 		for j, ff := range tt.expectedFrames {
 			expected := ff
-			actual := driver.CollectFrames()[j]
+			actual := actualFrames[j]
 			if expected.Line != actual.Line ||
 				expected.Name != actual.Name ||
 				expected.Id != actual.Id {
@@ -586,3 +618,23 @@ let d = 3;
 
 	}
 }
+
+// TODO write a test for this code :
+//let null = [1, 2][2];
+
+//let Option = fn(x) {
+//if (x == null) {
+//return fn() {};
+//} else {
+//return fn() {x};
+//}
+//};
+
+//let gett = fn(arr, i) {
+//return Option(arr[i]);
+//};
+
+//let optElem = gett([1, 2], 1); STEP OVER HERE, suspect panic in vm.SourceLocation() or in Index access op code
+//let optMapped = optElem.optionMap(double);
+//puts(optMapped.unwrap())
+//puts([1, 2].arr_any {x -> x > 1})
