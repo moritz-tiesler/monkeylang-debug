@@ -1,4 +1,17 @@
 let null = [1, 2][2];
+let arr_any = fn(list, pred) {
+    let iter = fn(arr) {
+        if (arr.len() == 0) {
+            return false;
+        }
+        if (pred(arr.first())) {
+            return true;
+        } else {
+            return iter(arr.rest());
+        } 
+    };
+    iter(list);
+};
 
 let Option = fn(x) {
     if (x == null) {
@@ -7,6 +20,22 @@ let Option = fn(x) {
         return fn() {x};
     }
 };
+let optionBind = fn(option, func) {
+    let val = option();
+    if (val) {
+        return func(val);
+    } else {
+        return null;
+    }
+};
+
+let at = fn(arr, i) {
+    Option(arr[i])
+}
+ 
+let elem = at([1, 2], 1);
+
+let maybe = Option(3);
 
 let unwrap = fn(opt) {
     return opt()
@@ -21,32 +50,10 @@ let optionMap = fn(opt, func) {
     }
 };
 
-let arr_any = fn(arr, pred) {
-    let iter = fn(arr) {
-        if (arr.len() == 0) {
-            return false;
-        }
-        if (pred(arr.first())) {
-            return true;
-        } else {
-            return iter(arr.rest());
-        } 
-    };
-    iter(arr);
-};
-
-let optionBind = fn(option, func) {
-    let val = option()
-    if (val) {
-        return func(val)
-    } else {
-        return null
-    }
-};
-
+let bogus = 3;
 
 let gett = fn(arr, i) {
-    return Option(arr[i]);
+    Option(arr[i])
 };
 
 let double = fn(x) {
@@ -55,7 +62,7 @@ let double = fn(x) {
 
 let z = double(2);
  
-let optElem = gett([1, 2], 1);
+let optElem = at([1, 2], 1);
 let optMapped = optElem.optionMap(double);
 puts(optMapped.unwrap())
 puts([1, 2].arr_any {x -> x > 1})

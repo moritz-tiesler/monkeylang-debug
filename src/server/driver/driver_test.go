@@ -1,10 +1,11 @@
 package driver
 
 import (
-	"monkey/compiler"
-	"monkey/parser"
-	"monkey/vm"
 	"testing"
+
+	"github.com/moritz-tiesler/monkey/compiler"
+	"github.com/moritz-tiesler/monkey/parser"
+	"github.com/moritz-tiesler/monkey/vm"
 )
 
 type driverTestCase struct {
