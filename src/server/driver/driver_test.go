@@ -68,7 +68,7 @@ let y = 4`,
 			vmLoc := driver.VM.SourceLocation()
 			actual := vmLoc.Range.Start.Line
 			if expected != actual {
-				t.Errorf("error in breaktpoint test %d", i)
+				t.Errorf("error in breaktpoint test %d", i+1)
 				t.Errorf("wrong breakpoint line: expected line=%d, got line=%d", expected, actual)
 			}
 		}
@@ -140,6 +140,27 @@ let bb = y`,
 
 func TestStepOver(t *testing.T) {
 	tests := []driverTestCase{
+		{
+			sourceCode: `
+let fun = fn(x) {
+	let iter = fn(n) {
+		if (n == 0) {
+
+		} else {
+			iter(n-1);
+		}
+	};
+	iter(x);
+};
+fun(2);
+let bogus = 3;
+`,
+
+			breakPoints: []breakpoint{
+				{line: 12, col: 0},
+			},
+			expectedLocation: 13,
+		},
 		{
 			sourceCode: `
 let square = fn(x) {
@@ -236,7 +257,6 @@ x`,
 		for _, bp := range tt.breakPoints {
 			driver.RunUntilBreakPoint(bp.line)
 			driver.StepOver()
-			t.Logf(driver.State())
 			t.Logf("%d", driver.VM.State())
 		}
 
@@ -244,6 +264,7 @@ x`,
 		vmLoc := driver.VM.SourceLocation()
 		actual := vmLoc.Range.Start.Line
 		if expected != actual {
+			t.Logf(driver.State())
 			t.Errorf("error in breaktpoint test %d", i+1)
 			t.Errorf("wrong breakpoint line: expected line=%d, got line=%d", expected, actual)
 		}
@@ -434,6 +455,188 @@ func TestStackFrames(t *testing.T) {
 	tests := []StackFrameTestCase{
 		{
 			sourceCode: `
+let Null = [1, 2][2];
+let arr_any = fn(list, pred) {
+	let iter = fn(arr) {
+		if (arr.len() == 0) {
+			return false;
+		}
+		if (pred(arr.first())) {
+			return true;
+		} else {
+			return iter(arr.rest());
+		} 
+	};
+	iter(list);
+};
+
+let Option = fn(x) {
+	if (x == Null) {
+		return fn() {};
+	} else {
+		return fn() {x};
+	}
+};
+let optionBind = fn(option, func) {
+	let val = option();
+	if (val) {
+		return func(val);
+	} else {
+		return Null;
+	}
+};
+
+let at = fn(arr, i) {
+	Option(arr[i])
+}
+	
+let elem = at([1, 2], 1);
+
+let maybe = Option(3);
+
+let unwrap = fn(opt) {
+	return opt()
+};
+
+let optionMap = fn(opt, func) {
+	let val = opt.unwrap();
+	if (val) {
+		return Option(func(val));
+	} else {
+		return Null;
+	}
+};
+
+let bogus = 3;
+`,
+			breakPoint: breakpoint{
+				line: 54, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 54,
+				},
+			},
+		},
+		{
+			sourceCode: `
+let arr_any = fn(list, pred) {
+	let iter = fn(arr) {
+		if (arr.len() == 0) {
+			return false;
+		}
+		if (pred(arr.first())) {
+			return true;
+		} else {
+			return iter(arr.rest());
+		} 
+	};
+	iter(list);
+};
+let bogus = 2;
+`,
+			breakPoint: breakpoint{
+				line: 15, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 15,
+				},
+			},
+		},
+		{
+			sourceCode: `
+let null = [1, 2][2];		
+let Option = fn(x) {
+    if (x == null) {
+        return fn() {};
+    } else {
+        return fn() {x};
+    }
+};
+let optionBind = fn(option, func) {
+    let val = option();
+    if (val) {
+        return func(val);
+    } else {
+        return null;
+    }
+};
+let bogus = 4;
+`,
+			breakPoint: breakpoint{
+				line: 18, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 18,
+				},
+			},
+		},
+		{
+			sourceCode: `
+let rec = fn(n) {
+	if (n == 0) {}
+	else {
+		rec(n-1)
+	}
+}
+let x = 4
+let bogus = rec(4)
+let y = 5
+`,
+			breakPoint: breakpoint{
+				line: 3, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 9,
+				},
+				{
+					Id:   1,
+					Name: "rec",
+					Line: 3,
+				},
+			},
+		},
+		{
+			sourceCode: `
+let rec = fn(n) {
+	if (n == 0) {}
+	else {
+		rec(n-1)
+	}
+}
+let x = 4
+let null = rec(4)
+let y = 5
+`,
+			breakPoint: breakpoint{
+				line: 3, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 9,
+				},
+				{
+					Id:   1,
+					Name: "rec",
+					Line: 3,
+				},
+			},
+		},
+		{
+			sourceCode: `
 let arr_all = fn(array, pred) {
     let iter = fn(arr) {
         if (arr.len() == 0) {
@@ -618,23 +821,3 @@ let d = 3;
 
 	}
 }
-
-// TODO write a test for this code :
-//let null = [1, 2][2];
-
-//let Option = fn(x) {
-//if (x == null) {
-//return fn() {};
-//} else {
-//return fn() {x};
-//}
-//};
-
-//let gett = fn(arr, i) {
-//return Option(arr[i]);
-//};
-
-//let optElem = gett([1, 2], 1); STEP OVER HERE, suspect panic in vm.SourceLocation() or in Index access op code
-//let optMapped = optElem.optionMap(double);
-//puts(optMapped.unwrap())
-//puts([1, 2].arr_any {x -> x > 1})

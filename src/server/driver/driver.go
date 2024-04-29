@@ -264,7 +264,6 @@ func (d *Driver) RunUntilBreakPoint(line int) (error, bool) {
 	return nil, breakPointHit
 }
 
-// TODO: puts() (and all built ins) call probably does not return a proper source location
 func (d Driver) VMLocation() int {
 
 	loc := d.VM.SourceLocation()
@@ -283,8 +282,7 @@ type DebugFrame struct {
 func (d Driver) NewDebugFrame(id int, vmFrame *vm.Frame) DebugFrame {
 	name := vmFrame.Name()
 	source := d.Source
-	key := compiler.LocationKey{ScopeId: vmFrame.Closure().Fn, InstructionIndex: vmFrame.Ip + 1}
-	loc := d.VM.LocationMap[key]
+	loc := d.VM.SourceLocationInFrame(vmFrame)
 	line := loc.Range.Start.Line
 	col := loc.Range.Start.Col
 
@@ -299,26 +297,29 @@ func (d Driver) NewDebugFrame(id int, vmFrame *vm.Frame) DebugFrame {
 
 func (d *Driver) CollectFrames() []DebugFrame {
 	numFrames := d.VM.FramesIndex()
-	frames := make([]DebugFrame, numFrames)
+	vmFrames := d.VM.Frames()
+	debugFrames := make([]DebugFrame, numFrames)
 	for i := 0; i < numFrames; i++ {
-		vmFrame := d.VM.Frames()[i]
+		vmFrame := vmFrames[i]
 		debugFrame := d.NewDebugFrame(i, vmFrame)
 		if i == 0 {
 			debugFrame.Name = "main"
 		}
 		debugFrame.Source = d.Source
+
 		frameObjects, names := d.VM.ActiveObjects(*vmFrame)
+
 		frameVars := make([]DriverVar, len(frameObjects))
 		for j, obj := range frameObjects {
 			name := names[obj]
-			frameVars[j] = ObjectToDriverVar(*obj, name)
+			frameVars[j] = ObjectToDriverVar(obj, name)
 		}
 		debugFrame.Vars = frameVars
-		frames[i] = debugFrame
+		debugFrames[i] = debugFrame
 
 	}
-	d.Frames = frames
-	return frames
+	d.Frames = debugFrames
+	return debugFrames
 }
 
 type DriverVar struct {
