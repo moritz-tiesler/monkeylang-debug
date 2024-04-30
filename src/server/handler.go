@@ -314,8 +314,11 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 
+	log.Printf("Driver has errors: %v", h.Driver.HasErrors())
+	log.Printf("VM state: %d", h.Driver.VMState())
 	if h.Driver.HasErrors() {
 		// TODO: return proper stacktraces when error is runtime error
+		// send single stack trace if compiler error
 		log.Println("Sending error stacktrace")
 		e := h.Driver.Errors[0]
 		stackFrames := make([]dap.StackFrame, 1)
@@ -331,6 +334,8 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 			TotalFrames: 1,
 		}
 		h.session.send(response)
+
+		h.session.stopDebug <- struct{}{}
 		return
 
 	}
@@ -366,28 +371,19 @@ func (h *MonkeyHandler) OnScopesRequest(request *dap.ScopesRequest) {
 	response.Body = dap.ScopesResponseBody{
 		Scopes: scopes,
 	}
-	h.session.send(response)
+	select {
+	case <-h.session.stopDebug:
+		h.session.stopDebug <- struct{}{}
+		return
+	case <-time.After(100 * time.Millisecond):
+		h.session.send(response)
+	}
 }
 
 func (h *MonkeyHandler) OnVariablesRequest(request *dap.VariablesRequest) {
 	// subtract 1 from ref and use the value as an index into our driver frames
 	varRef := request.Arguments.VariablesReference - 1
 
-	if h.Driver.HasErrors() {
-		response := &dap.VariablesResponse{}
-		response.Response = *newResponse(request.Seq, request.Command)
-
-		errorVar := dap.Variable{
-			Name:  "Error",
-			Value: h.Driver.Errors[0].Error(),
-			Type:  "ERROR",
-		}
-		response.Body = dap.VariablesResponseBody{
-			Variables: []dap.Variable{errorVar},
-		}
-		h.session.send(response)
-		return
-	}
 	driverVars := h.Driver.Frames[varRef].Vars
 	log.Printf("driverVars: %v", driverVars)
 	vars := make([]dap.Variable, len(driverVars))
@@ -448,14 +444,17 @@ func (h *MonkeyHandler) OnCompletionsRequest(request *dap.CompletionsRequest) {
 }
 
 func (h *MonkeyHandler) OnExceptionInfoRequest(request *dap.ExceptionInfoRequest) {
-	// this gets invoked when you click the stack frame
 	response := &dap.ExceptionInfoResponse{}
+	response.Response = *newResponse(request.Seq, request.Command)
 	body := dap.ExceptionInfoResponseBody{}
+	body.BreakMode = "always"
+	body.ExceptionId = "0"
 	body.Description = h.Driver.Errors[0].Error()
 	body.Details = &dap.ExceptionDetails{
 		Message: h.Driver.Errors[0].Error(),
 	}
 	response.Body = body
+	time.Sleep(100 * time.Millisecond)
 	h.session.send(response)
 }
 
