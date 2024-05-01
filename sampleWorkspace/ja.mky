@@ -57,10 +57,9 @@ let gett = fn(arr, i) {
 };
 
 let double = fn(x) {
-    x + x
+    x + x + "2"
 };
 
-let z = double(2);
  
 let optElem = at([1, 2], 1);
 let optMapped = optElem.optionMap(double);

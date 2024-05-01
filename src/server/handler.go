@@ -13,9 +13,10 @@ import (
 )
 
 type MonkeyHandler struct {
-	session  *Session
-	Driver   *driver.Driver
-	bpSetMux sync.Mutex
+	session             *Session
+	Driver              *driver.Driver
+	bpSetMux            sync.Mutex
+	terminateOnNextStep bool
 }
 
 func NewHandler() MonkeyHandler {
@@ -87,12 +88,12 @@ func (h *MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 
 		go func() {
 			time.Sleep(200 * time.Millisecond)
-			s := h.Driver.VMState()
+			s := h.Driver.State()
 			log.Printf("State: %d", s)
 			switch s {
 			case driver.OFF:
 			default:
-				e := h.ProduceStopEvent(h.Driver.VMState())
+				e := h.ProduceStopEvent(h.Driver.State())
 				h.session.send(e)
 			}
 		}()
@@ -108,11 +109,11 @@ func (h *MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 		}
 		log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
 
-		switch h.Driver.VMState() {
+		switch h.Driver.State() {
 		case driver.OFF:
 			return
 		default:
-			e := h.ProduceStopEvent(h.Driver.VMState())
+			e := h.ProduceStopEvent(h.Driver.State())
 			h.session.send(e)
 		}
 	}()
@@ -196,7 +197,7 @@ func (h *MonkeyHandler) OnContinueRequest(request *dap.ContinueRequest) {
 	}
 	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
 
-	s := h.Driver.VMState()
+	s := h.Driver.State()
 	switch s {
 	case driver.OFF:
 		log.Printf("%d\n", s)
@@ -221,17 +222,17 @@ func (h *MonkeyHandler) OnNextRequest(request *dap.NextRequest) {
 	log.Printf("Received command=%s", command)
 	err, _ := h.Driver.StepOver()
 	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
-	log.Printf("VM State=%s", h.Driver.VMState().String())
+	log.Printf("VM State=%s", h.Driver.State().String())
 
 	if err != nil {
 		log.Printf("error handling NextRequest: %s", err)
 	}
 
-	switch h.Driver.VMState() {
+	switch h.Driver.State() {
 	case driver.OFF:
 		return
 	default:
-		e := h.ProduceStopEvent(h.Driver.VMState())
+		e := h.ProduceStopEvent(h.Driver.State())
 		h.session.send(e)
 	}
 
@@ -248,17 +249,17 @@ func (h *MonkeyHandler) OnStepInRequest(request *dap.StepInRequest) {
 	log.Printf("Received command=%s", command)
 	err, _ := h.Driver.StepInto()
 	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
-	log.Printf("VM State=%s", h.Driver.VMState().String())
+	log.Printf("VM State=%s", h.Driver.State().String())
 
 	if err != nil {
 		log.Printf("error handling NextRequest: %s", err)
 	}
 
-	switch h.Driver.VMState() {
+	switch h.Driver.State() {
 	case driver.OFF:
 		return
 	default:
-		e := h.ProduceStopEvent(h.Driver.VMState())
+		e := h.ProduceStopEvent(h.Driver.State())
 		h.session.send(e)
 	}
 
@@ -275,17 +276,17 @@ func (h *MonkeyHandler) OnStepOutRequest(request *dap.StepOutRequest) {
 	log.Printf("Received command=%s", command)
 	err, _ := h.Driver.StepOut()
 	log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
-	log.Printf("VM State=%s", h.Driver.VMState().String())
+	log.Printf("VM State=%s", h.Driver.State().String())
 
 	if err != nil {
 		log.Printf("error handling NextRequest: %s", err)
 	}
 
-	switch h.Driver.VMState() {
+	switch h.Driver.State() {
 	case driver.OFF:
 		return
 	default:
-		e := h.ProduceStopEvent(h.Driver.VMState())
+		e := h.ProduceStopEvent(h.Driver.State())
 		h.session.send(e)
 	}
 }
@@ -314,17 +315,15 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 	response := &dap.StackTraceResponse{}
 	response.Response = *newResponse(request.Seq, request.Command)
 
-	log.Printf("Driver has errors: %v", h.Driver.HasErrors())
-	log.Printf("VM state: %d", h.Driver.VMState())
-	if h.Driver.HasErrors() {
-		// TODO: return proper stacktraces when error is runtime error
-		// send single stack trace if compiler error
-		log.Println("Sending error stacktrace")
+	ds := h.Driver.State()
+	log.Printf("Driver state: %v", ds)
+	switch ds {
+	case driver.COMPILER_ERROR:
 		e := h.Driver.Errors[0]
 		stackFrames := make([]dap.StackFrame, 1)
 		stackFrames[0] = dap.StackFrame{
 			Id:     0,
-			Name:   "Error",
+			Name:   "Compiler Error",
 			Source: &h.session.source,
 			Line:   e.Line(),
 			Column: e.Col(),
@@ -333,24 +332,19 @@ func (h *MonkeyHandler) OnStackTraceRequest(request *dap.StackTraceRequest) {
 			StackFrames: stackFrames,
 			TotalFrames: 1,
 		}
-		h.session.send(response)
-
-		h.session.stopDebug <- struct{}{}
-		return
-
+	default:
+		driverFrames := h.Driver.CollectFrames()
+		stackFrames := make([]dap.StackFrame, len(driverFrames))
+		// reverse the order: deepest stack frame must be first in array
+		for i := len(stackFrames) - 1; i >= 0; i-- {
+			stackFrames[i] = h.DriverFrameToStackFrame(driverFrames[len(stackFrames)-1-i])
+		}
+		response.Body = dap.StackTraceResponseBody{
+			StackFrames: stackFrames,
+			TotalFrames: len(stackFrames),
+		}
 	}
 
-	log.Println("attempting to collect frames")
-	driverFrames := h.Driver.CollectFrames()
-	stackFrames := make([]dap.StackFrame, len(driverFrames))
-	// reverse the order: deepest stack frame must be first in array
-	for i := len(stackFrames) - 1; i >= 0; i-- {
-		stackFrames[i] = h.DriverFrameToStackFrame(driverFrames[len(stackFrames)-1-i])
-	}
-	response.Body = dap.StackTraceResponseBody{
-		StackFrames: stackFrames,
-		TotalFrames: len(stackFrames),
-	}
 	h.session.send(response)
 }
 
@@ -373,9 +367,8 @@ func (h *MonkeyHandler) OnScopesRequest(request *dap.ScopesRequest) {
 	}
 	select {
 	case <-h.session.stopDebug:
-		h.session.stopDebug <- struct{}{}
 		return
-	case <-time.After(100 * time.Millisecond):
+	default:
 		h.session.send(response)
 	}
 }
@@ -393,7 +386,7 @@ func (h *MonkeyHandler) OnVariablesRequest(request *dap.VariablesRequest) {
 	select {
 	case <-h.session.stopDebug:
 		return
-	case <-time.After(100 * time.Millisecond):
+	default:
 		response := &dap.VariablesResponse{}
 		response.Response = *newResponse(request.Seq, request.Command)
 		response.Body = dap.VariablesResponseBody{
@@ -448,13 +441,11 @@ func (h *MonkeyHandler) OnExceptionInfoRequest(request *dap.ExceptionInfoRequest
 	response.Response = *newResponse(request.Seq, request.Command)
 	body := dap.ExceptionInfoResponseBody{}
 	body.BreakMode = "always"
-	body.ExceptionId = "0"
 	body.Description = h.Driver.Errors[0].Error()
 	body.Details = &dap.ExceptionDetails{
 		Message: h.Driver.Errors[0].Error(),
 	}
 	response.Body = body
-	time.Sleep(100 * time.Millisecond)
 	h.session.send(response)
 }
 
@@ -506,11 +497,19 @@ func (h *MonkeyHandler) DriverFrameToStackFrame(driverFrame driver.DebugFrame) d
 
 }
 
-func (h *MonkeyHandler) ProduceStopEvent(state driver.VMState) dap.Message {
+func (h *MonkeyHandler) ProduceStopEvent(state driver.State) dap.Message {
 	// switch on the State here
 	var e dap.Message
 
-	switch h.Driver.VMState() {
+	if h.terminateOnNextStep {
+		e = &dap.TerminatedEvent{
+			Event: *newEvent("terminated"),
+		}
+		return e
+	}
+
+	st := h.Driver.State()
+	switch st {
 	case driver.STOPPED:
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
@@ -519,16 +518,17 @@ func (h *MonkeyHandler) ProduceStopEvent(state driver.VMState) dap.Message {
 				ThreadId: 1, AllThreadsStopped: true,
 			},
 		}
-	case driver.ERROR:
+	case driver.COMPILER_ERROR, driver.RUNTIME_ERROR:
 		e = &dap.StoppedEvent{
 			Event: *newEvent("stopped"),
 			Body: dap.StoppedEventBody{
 				Reason:            "exception",
 				ThreadId:          1,
 				AllThreadsStopped: true,
-				Description:       "An error occured",
+				Description:       st.String(),
 			},
 		}
+		h.terminateOnNextStep = true
 	case driver.DONE:
 		e = &dap.TerminatedEvent{
 			Event: *newEvent("terminated"),

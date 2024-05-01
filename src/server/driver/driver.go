@@ -26,24 +26,30 @@ type Driver struct {
 	Errors              []exception.Exception
 }
 
-type VMState int
+type State int
 
 const (
-	OFF VMState = iota
+	OFF State = iota
 	STOPPED
 	DONE
-	ERROR
+	COMPILER_ERROR
+	RUNTIME_ERROR
 )
 
-func (d Driver) VMState() VMState {
-
-	if d.HasErrors() {
-		return ERROR
+func (d Driver) State() State {
+	if d.VM == nil {
+		// VM has not been initialized
+		return COMPILER_ERROR
 	}
-	return VMState(d.VM.State())
+
+	vs := d.VM.State()
+	if d.HasErrors() && vs == vm.STOPPED {
+		return RUNTIME_ERROR
+	}
+	return State(vs)
 }
 
-func (st VMState) String() string {
+func (st State) String() string {
 	var s string
 	switch st {
 	case OFF:
@@ -52,6 +58,10 @@ func (st VMState) String() string {
 		s = "STOPPED"
 	case DONE:
 		s = "DONE"
+	case RUNTIME_ERROR:
+		s = "RUNTIME_ERROR"
+	case COMPILER_ERROR:
+		s = "COMPILER_ERROR"
 	}
 
 	return s
@@ -76,7 +86,7 @@ func (d *Driver) SetBreakPoints(lines []int) {
 	d.Breakpoints = bps
 }
 
-func (d *Driver) State() string {
+func (d *Driver) BreakpoinState() string {
 	state := ""
 
 	lines := strings.Split(d.SourceCode, "\n")
@@ -134,7 +144,7 @@ func (d *Driver) StepOver() (error, bool) {
 		cycleLine := cycleLocation.Range.Start.Line
 		cycleDepth := d.VM.CallDepth
 		if cycleLine != startingLine && cycleDepth <= startingDepth {
-			if !(d.VMState() == DONE) {
+			if !(d.State() == DONE) {
 				vm.CurrentFrame().Ip--
 			}
 			return true, nil
@@ -168,7 +178,7 @@ func (d *Driver) StepInto() (error, bool) {
 		if (cycleLine != startingLine && cycleDepth <= startingDepth) ||
 			// If we call StepInto on a line that has smth to step into
 			(cycleDepth > startingDepth) {
-			if !(d.VMState() == DONE) {
+			if !(d.State() == DONE) {
 				vm.CurrentFrame().Ip--
 			}
 			return true, nil
@@ -194,7 +204,7 @@ func (d *Driver) StepOut() (error, bool) {
 		cycleDepth := d.VM.CallDepth
 
 		if cycleDepth < startingDepth {
-			if !(d.VMState() == DONE) {
+			if !(d.State() == DONE) {
 				vm.CurrentFrame().Ip--
 			}
 			return true, nil

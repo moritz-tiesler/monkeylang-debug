@@ -265,7 +265,7 @@ x`,
 		vmLoc := driver.VM.SourceLocation()
 		actual := vmLoc.Range.Start.Line
 		if expected != actual {
-			t.Logf(driver.State())
+			t.Logf(driver.BreakpoinState())
 			t.Errorf("error in breaktpoint test %d", i+1)
 			t.Errorf("wrong breakpoint line: expected line=%d, got line=%d", expected, actual)
 		}
@@ -347,7 +347,7 @@ x`,
 		for _, bp := range tt.breakPoints {
 			driver.RunUntilBreakPoint(bp.line)
 			driver.StepInto()
-			t.Logf(driver.State())
+			t.Logf(driver.BreakpoinState())
 			t.Logf("%d", driver.VM.State())
 		}
 
@@ -432,7 +432,7 @@ x`,
 		for _, bp := range tt.breakPoints {
 			driver.RunUntilBreakPoint(bp.line)
 			driver.StepOut()
-			t.Logf(driver.State())
+			t.Logf(driver.BreakpoinState())
 			t.Logf("%d", driver.VM.State())
 		}
 
@@ -799,7 +799,7 @@ let d = 3;
 		}
 		// Test is expected to have an error here
 		if err == nil {
-			t.Errorf("expected error state for code=%s, got=%s", tt.sourceCode, driver.VMState())
+			t.Errorf("expected error state for code=%s, got=%s", tt.sourceCode, driver.State())
 		}
 
 		switch tt.expected.(type) {
