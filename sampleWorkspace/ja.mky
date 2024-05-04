@@ -12,6 +12,11 @@ let arr_any = fn(list, pred) {
     };
     iter(list);
 };
+let some = if (true) {
+    2
+} else {
+    4
+};
 
 let Option = fn(x) {
     if (x == null) {
@@ -57,12 +62,14 @@ let gett = fn(arr, i) {
 };
 
 let double = fn(x) {
-    x + x + "2"
+    x + x 
 };
 
  
+
+puts([1, 2].arr_any {x -> x > 1});
 let optElem = at([1, 2], 1);
 let optMapped = optElem.optionMap(double);
-puts(optMapped.unwrap())
-puts([1, 2].arr_any {x -> x > 1})
+
+let some = 4
 

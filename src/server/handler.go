@@ -103,11 +103,14 @@ func (h *MonkeyHandler) OnLaunchRequest(request *dap.LaunchRequest) {
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		err, _ = h.Driver.RunWithBreakpoints(h.Driver.Breakpoints)
+		err, hit := h.Driver.RunWithBreakpoints(h.Driver.Breakpoints)
 		if err != nil {
 			log.Printf("error runnig VM: %s", err)
 		}
+		log.Printf("bp hit=%v", hit)
 		log.Printf("Ran VM until %v\n", h.Driver.VM.SourceLocation())
+		log.Printf("VM state=%s", h.Driver.State().String())
+		log.Printf("VM pointer=%d", h.Driver.VM.CurrentFrame().Ip)
 
 		switch h.Driver.State() {
 		case driver.OFF:
@@ -499,6 +502,7 @@ func (h *MonkeyHandler) DriverFrameToStackFrame(driverFrame driver.DebugFrame) d
 
 func (h *MonkeyHandler) ProduceStopEvent(state driver.State) dap.Message {
 	// switch on the State here
+	log.Printf("producing stop event for state=%s", state.String())
 	var e dap.Message
 
 	if h.terminateOnNextStep {

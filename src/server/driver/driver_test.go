@@ -18,6 +18,20 @@ type driverTestCase struct {
 func TestRunUntilBreakPoint(t *testing.T) {
 	tests := []driverTestCase{
 		{
+			sourceCode: `
+let some = if (true) {
+	2
+} else {
+	3
+};
+let bogus = 4
+`,
+
+			breakPoints: []breakpoint{
+				{line: 2, col: 0},
+			},
+		},
+		{
 			sourceCode: `let square = fn(x) {
 	return x * x
 }
@@ -548,6 +562,27 @@ func TestStackFrames(t *testing.T) {
 	tests := []StackFrameTestCase{
 		{
 			sourceCode: `
+let intro = 4
+let val = if (true) {
+	4
+} else {
+	5
+};
+let outro = 4;
+`,
+			breakPoint: breakpoint{
+				line: 3, col: 0,
+			},
+			expectedFrames: []DebugFrame{
+				{
+					Id:   0,
+					Name: "main",
+					Line: 3,
+				},
+			},
+		},
+		{
+			sourceCode: `
 let Null = [1, 2][2];
 let arr_any = fn(list, pred) {
 	let iter = fn(arr) {
@@ -805,7 +840,7 @@ let m = func(2);
 		if err != nil {
 			t.Errorf("error starting VM: %s", err)
 		}
-		_, hit := driver.RunUntilBreakPoint(tt.breakPoint.line)
+		err, hit := driver.RunWithBreakpoints([]breakpoint{tt.breakPoint})
 		if !hit {
 			t.Errorf("error in stackframe test %d", i+1)
 			t.Errorf("did not hit expected breakpoint: expected=%v, got=%v", tt.breakPoint, driver.VM.SourceLocation())
