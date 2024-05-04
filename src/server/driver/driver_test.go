@@ -143,6 +143,93 @@ func TestStepOver(t *testing.T) {
 	tests := []driverTestCase{
 		{
 			sourceCode: `
+let fun = fn() {
+	if (2 == 2) {}
+	else {
+		return 3;
+	}
+};
+let res = fun();
+let bogus = res;
+`,
+
+			breakPoints: []breakpoint{
+				{line: 3, col: 0},
+			},
+			expectedLocation: 8,
+		},
+		{
+			sourceCode: `
+let fun = fn() {
+	if (2 == 2) {
+		return 2;
+	} else {
+		return 3;
+	}
+};
+let res = fun();
+let bogus = res;
+`,
+
+			breakPoints: []breakpoint{
+				{line: 3, col: 0},
+			},
+			expectedLocation: 4,
+		},
+		{
+			sourceCode: `
+let fun = fn() {
+	if (2 == 3) {
+		return 2;
+	} else {
+		return 3;
+	}
+};
+let res = fun();
+let bogus = res;
+`,
+
+			breakPoints: []breakpoint{
+				{line: 3, col: 0},
+			},
+			expectedLocation: 6,
+		},
+		{
+			sourceCode: `
+let fun = fn() {
+	if (2 == 3) {
+		return 2;
+	}
+	return 3;
+};
+let res = fun();
+let bogus = res;
+`,
+
+			breakPoints: []breakpoint{
+				{line: 3, col: 0},
+			},
+			expectedLocation: 6,
+		},
+		{
+			sourceCode: `
+let fun = fn() {
+	if (true) {
+		return 2;
+	}
+	return 3;
+};
+let res = fun();
+let bogus = res;
+`,
+
+			breakPoints: []breakpoint{
+				{line: 3, col: 0},
+			},
+			expectedLocation: 4,
+		},
+		{
+			sourceCode: `
 let fun = fn(x) {
 	let iter = fn(n) {
 		if (n == 0) {
@@ -257,6 +344,11 @@ x`,
 		driver.SourceCode = tt.sourceCode
 		for _, bp := range tt.breakPoints {
 			driver.RunUntilBreakPoint(bp.line)
+			lineAfterBp := driver.VM.SourceLocation().Range.Start.Line
+			if lineAfterBp != bp.line {
+				t.Errorf("error in StepOver test %d", i+1)
+				t.Errorf("wrong location after RunUntilBreakPoint: expected line=%d, got line=%d", bp.line, lineAfterBp)
+			}
 			driver.StepOver()
 			t.Logf("%d", driver.VM.State())
 		}
@@ -266,8 +358,8 @@ x`,
 		actual := vmLoc.Range.Start.Line
 		if expected != actual {
 			t.Logf(driver.BreakpoinState())
-			t.Errorf("error in breaktpoint test %d", i+1)
-			t.Errorf("wrong breakpoint line: expected line=%d, got line=%d", expected, actual)
+			t.Errorf("error in StepOver test %d", i+1)
+			t.Errorf("wrong location after StepOver: expected line=%d, got line=%d", expected, actual)
 		}
 	}
 }
