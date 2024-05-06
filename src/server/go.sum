@@ -16,3 +16,7 @@ github.com/moritz-tiesler/monkey v0.0.0-20240504182334-36f37acde98b h1:YIKyESs2o
 github.com/moritz-tiesler/monkey v0.0.0-20240504182334-36f37acde98b/go.mod h1:J11VuYMl3FWfEb0afvWhbI2sGv9O9F47GoUsx2gCGGw=
 github.com/moritz-tiesler/monkey v0.0.0-20240504192524-9136b228d480 h1:gl2Z7NvW9CN8tQ2nx2NagF5v2Yt3idX7Fmkie7R+9mw=
 github.com/moritz-tiesler/monkey v0.0.0-20240504192524-9136b228d480/go.mod h1:J11VuYMl3FWfEb0afvWhbI2sGv9O9F47GoUsx2gCGGw=
+github.com/moritz-tiesler/monkey v0.0.0-20240504193626-90edb82c2193 h1:2loc6+hgKN1RdA9R4ScgFpm7B2YR3gY+yu1wTO5ScWk=
+github.com/moritz-tiesler/monkey v0.0.0-20240504193626-90edb82c2193/go.mod h1:J11VuYMl3FWfEb0afvWhbI2sGv9O9F47GoUsx2gCGGw=
+github.com/moritz-tiesler/monkey v0.0.0-20240506124435-71027b8a424c h1:jgKgiqag+yILE9wQK6m6XquJ9r/OO5rTF1qEU8nSEuQ=
+github.com/moritz-tiesler/monkey v0.0.0-20240506124435-71027b8a424c/go.mod h1:J11VuYMl3FWfEb0afvWhbI2sGv9O9F47GoUsx2gCGGw=
